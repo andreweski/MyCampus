@@ -1,0 +1,14 @@
+{
+  "name": "mycampus",
+  "version": "1.0.0",
+  "description": "MyCampus database layer (SQLite)",
+  "private": true,
+  "scripts": {
+    "seed": "node src/db/seed.js",
+    "test:db": "node --test tests/db.test.js"
+  },
+  "dependencies": {
+    "better-sqlite3": "^13.0.3"
+  },
+  "engines": { "node": ">=18" }
+}
