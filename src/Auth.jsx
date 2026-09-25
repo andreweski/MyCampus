@@ -95,6 +95,10 @@ export function ConfirmCode({ email }) {
   );
 }
 
+function isSchoolEmail(value) {
+  return /^[^\s@]+@[^\s@]+\.edu$/i.test(value.trim());
+}
+
 export function Auth() {
   const [mode, setMode] = useState('choose');
   const [email, setEmail] = useState('');
@@ -105,6 +109,10 @@ export function Auth() {
   async function submit(event) {
     event.preventDefault();
     setError('');
+    if (mode === 'join' && !isSchoolEmail(email)) {
+      setError('Use a school email that ends in .edu.');
+      return;
+    }
     if (!email.includes('@') || !email.includes('.')) {
       setError('Use a school email.');
       return;
@@ -148,8 +156,8 @@ export function Auth() {
             <p className="lede">Find your people. Get matched with other students.</p>
             <form className="enroll" onSubmit={(event) => {
               event.preventDefault();
-              if (!email.includes('@') || !email.includes('.')) {
-                setError('Use a school email.');
+              if (!isSchoolEmail(email)) {
+                setError('Use a school email that ends in .edu.');
                 return;
               }
               setError('');

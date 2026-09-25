@@ -180,7 +180,11 @@ export async function init() {
 }
 
 export async function signUpWithSupabase(email, password) {
-  const { data, error } = await supabase.auth.signUp({ email: email.trim().toLowerCase(), password });
+  const address = email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.edu$/i.test(address)) {
+    return { ok: false, error: 'Use a school email that ends in .edu.' };
+  }
+  const { data, error } = await supabase.auth.signUp({ email: address, password });
   if (error) return { ok: false, error: error.message };
   if (!data.session) return { ok: true, pending: true };
   await supabase.from('profiles').upsert({ id: data.user.id });
@@ -246,6 +250,9 @@ export async function logInWithSupabase(email, password) {
 
 export function signUp(email, passwordHash) {
   const key = email.trim().toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.edu$/i.test(key)) {
+    return { ok: false, error: 'Use a school email that ends in .edu.' };
+  }
   const all = readAccounts();
   if (all[key]) return { ok: false, error: 'That email already has an account. Log in instead.' };
   all[key] = { email: key, passwordHash, profile: null };
