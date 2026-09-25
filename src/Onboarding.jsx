@@ -20,7 +20,7 @@ function toggle(list, value) {
   return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
 }
 
-export function Onboarding({ onDone, initial }) {
+export function Onboarding({ onDone, initial, editing = false }) {
   const [step, setStep] = useState(0);
   const [form, setForm] = useState(initial ? { ...empty, ...initial } : empty);
   const [custom, setCustom] = useState('');
@@ -157,7 +157,7 @@ export function Onboarding({ onDone, initial }) {
       <footer className="actions">
         {step > 0 && <button type="button" className="ghost" onClick={() => setStep((n) => n - 1)}>Back</button>}
         {step < 3 && <button type="button" className="solid" disabled={!can} onClick={() => setStep((n) => n + 1)}>Continue</button>}
-        {step === 3 && <button type="button" className="solid accent" disabled={!can} onClick={finish}>Show me a plan</button>}
+        {step === 3 && <button type="button" className="solid accent" disabled={!can} onClick={finish}>{editing ? 'Save' : 'Show me a plan'}</button>}
       </footer>
     </main>
   );

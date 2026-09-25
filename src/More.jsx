@@ -66,6 +66,7 @@ export function Profile({ state }) {
   if (editing) {
     return (
       <Onboarding
+        editing
         initial={profile}
         onDone={(next) => {
           saveProfile(next);
