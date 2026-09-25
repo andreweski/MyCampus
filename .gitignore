@@ -1,4 +1,6 @@
 node_modules/
-data/
-*.db
-*.db-*
+dist/
+.DS_Store
+.env
+.env.local
+.env.*.local

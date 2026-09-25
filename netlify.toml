@@ -1,0 +1,19 @@
+# In the Netlify site settings, add VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY
+# before building. Vite bakes those into the site at build time.
+[build]
+  command = "npm run build"
+  publish = "dist"
+
+[functions]
+  directory = "netlify/functions"
+
+# Also add BREVO_SMTP_USER, BREVO_SMTP_KEY, and BREVO_FROM in the Netlify site settings.
+[[redirects]]
+  from = "/api/send-code"
+  to = "/.netlify/functions/send-code"
+  status = 200
+
+[[redirects]]
+  from = "/*"
+  to = "/index.html"
+  status = 200

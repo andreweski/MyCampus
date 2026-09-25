@@ -1,14 +1,21 @@
 {
   "name": "mycampus",
   "version": "1.0.0",
-  "description": "MyCampus database layer (SQLite)",
   "private": true,
+  "type": "module",
   "scripts": {
-    "seed": "node src/db/seed.js",
-    "test:db": "node --test tests/db.test.js"
+    "dev": "vite",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
-    "better-sqlite3": "^13.0.3"
+    "@supabase/supabase-js": "^2.117.1",
+    "nodemailer": "^10.0.10",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1"
   },
-  "engines": { "node": ">=18" }
+  "devDependencies": {
+    "@vitejs/plugin-react": "^4.3.4",
+    "vite": "^6.0.7"
+  }
 }
