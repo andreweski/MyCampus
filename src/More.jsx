@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { PLACES, ZONES, placeById } from './data.js';
+import { PLACES, ZONES, hobbyLabel, placeById } from './data.js';
 import { ALL_BADGES, badgeMeta, logOut, preferPlace, resetAll, saveProfile } from './store.js';
 import { Avatar, CampusMap, effectFor } from './ui.jsx';
 import { Onboarding } from './Onboarding.jsx';
@@ -81,7 +81,7 @@ export function Profile({ state }) {
         <Avatar person={profile} effect={effectFor(rewards)} size={64} />
         <div>
           <h1>{profile.name}</h1>
-          <p className="place">{profile.hobbies.join(' · ')}</p>
+          <p className="place">{profile.hobbies.map((hobby) => hobbyLabel(hobby)).join(' · ')}</p>
         </div>
       </div>
       {profile.major && <p className="lede">{profile.major}</p>}

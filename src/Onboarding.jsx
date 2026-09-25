@@ -51,7 +51,7 @@ export function Onboarding({ onDone, initial, editing = false }) {
     }
     const resolved = resolveHobby(key);
     const typedName = resolved.known && hobbyLabel(resolved.id).toLowerCase() === key;
-    const stored = fromSuggestion || typedName ? hobbyLabel(fromSuggestion ? suggestion.id : resolved.id) : key;
+    const stored = fromSuggestion || typedName ? hobbyLabel(fromSuggestion ? suggestion.id : resolved.id) : hobbyLabel(key);
     set({ hobbies: [...form.hobbies, stored] });
     if (!fromSuggestion && !resolved.known) noteOpenHobby(key);
     setCustom('');
@@ -105,7 +105,7 @@ export function Onboarding({ onDone, initial, editing = false }) {
           {form.hobbies.some((item) => !INTERESTS.includes(item)) && (
             <div className="chips">
               {form.hobbies.filter((item) => !INTERESTS.includes(item)).map((item) => (
-                <button type="button" key={item} className="on" onClick={() => set({ hobbies: form.hobbies.filter((hobby) => hobby !== item) })}>{item}</button>
+                <button type="button" key={item} className="on" onClick={() => set({ hobbies: form.hobbies.filter((hobby) => hobby !== item) })}>{hobbyLabel(item)}</button>
               ))}
             </div>
           )}
