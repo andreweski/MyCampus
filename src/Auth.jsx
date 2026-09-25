@@ -141,11 +141,11 @@ export function Auth() {
         <section className="hero">
           <div className="auth-bar">
             <p className="brand">MyCampus</p>
-            <button type="button" className="texty" onClick={() => { setMode('login'); setError(''); }}>Log in</button>
+            <button type="button" className="solid" onClick={() => { setMode('login'); setError(''); }}>Log in</button>
           </div>
           <div className="hero-copy">
             <h1>Up for<br /><TypedIdea /></h1>
-            <p className="lede">Find your people. Get matched with a fellow student.</p>
+            <p className="lede">Find your people. Get matched with other students.</p>
             <form className="enroll" onSubmit={(event) => {
               event.preventDefault();
               if (!email.includes('@') || !email.includes('.')) {
@@ -157,7 +157,7 @@ export function Auth() {
             }}>
               <input type="email" autoComplete="username" value={email} onChange={(e) => setEmail(e.target.value)} placeholder="name@school.edu" aria-label="School email" />
               {error && <p className="warn">{error}</p>}
-              <button type="submit" className="solid">Join</button>
+              <button type="submit" className="solid">Sign up</button>
             </form>
           </div>
         </section>
@@ -184,7 +184,7 @@ export function Auth() {
           {error && <p className="warn">{error}</p>}
           <div className="actions">
             <button type="submit" className="solid accent" disabled={busy}>{mode === 'join' ? 'Create account' : 'Log in'}</button>
-            <button type="button" className="ghost" onClick={() => { setMode('choose'); setError(''); }}>{mode === 'join' ? 'I already have an account' : 'Need an account?'}</button>
+            <button type="button" className="ghost" onClick={() => { setMode(mode === 'join' ? 'login' : 'choose'); setError(''); }}>{mode === 'join' ? 'I already have an account' : 'Need an account?'}</button>
           </div>
         </form>
       )}

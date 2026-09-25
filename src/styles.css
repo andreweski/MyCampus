@@ -201,7 +201,7 @@ textarea { resize: vertical; }
 
 .auth:has(.hero) { width: min(720px, 100%); }
 .auth-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2.2rem; }
-.auth-bar .texty { padding: 0; font-weight: 600; }
+.auth-bar .solid { font-weight: 600; color: #000; background: #fff; }
 .hero { min-height: calc(100dvh - 3rem); display: flex; flex-direction: column; align-items: center; text-align: center; }
 .hero-copy {
   width: min(680px, calc(100% - 1.5rem));
@@ -264,7 +264,7 @@ textarea { resize: vertical; }
     padding: 1.2rem 1.6rem 2rem;
   }
   .auth-bar { position: relative; }
-  .auth-bar .texty { position: fixed; top: 1.3rem; right: 1.6rem; z-index: 3; }
+  .auth-bar .solid { position: fixed; top: 1.3rem; right: 1.6rem; z-index: 3; }
   .auth-bar .brand { position: fixed; top: 1.35rem; left: 1.6rem; z-index: 3; }
 }
 @media (prefers-reduced-motion: reduce) {
