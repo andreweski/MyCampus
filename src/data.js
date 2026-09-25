@@ -106,8 +106,99 @@ for (const [name, words] of Object.entries(CLUSTERS)) {
 }
 
 function canonOf(tag) {
-  const key = String(tag || '').toLowerCase().trim();
+  const key = normalizeHobby(tag);
   return WORD.get(key) || key;
+}
+
+const DISPLAY = new Map(INTERESTS.map((item) => [item.toLowerCase(), item]));
+const CATALOG = [...WORD.keys()].filter((word) => !word.includes(' '));
+
+export function normalizeHobby(text) {
+  return String(text || '').toLowerCase().trim().replace(/\s+/g, ' ');
+}
+
+export function hobbyLabel(id) {
+  const key = normalizeHobby(id);
+  if (DISPLAY.has(key)) return DISPLAY.get(key);
+  if (!key) return '';
+  return key.charAt(0).toUpperCase() + key.slice(1);
+}
+
+function mapHits(text) {
+  const key = normalizeHobby(text);
+  if (!key) return [];
+  if (WORD.has(key)) return [{ id: WORD.get(key), length: key.length, at: 0 }];
+  const tokens = key.match(/[a-z0-9]+/g) || [];
+  const hits = [];
+  for (let i = 0; i < tokens.length; i += 1) {
+    const pair = i + 1 < tokens.length ? `${tokens[i]} ${tokens[i + 1]}` : '';
+    if (pair && WORD.has(pair)) {
+      hits.push({ id: WORD.get(pair), length: pair.length, at: i });
+      i += 1;
+      continue;
+    }
+    if (WORD.has(tokens[i])) hits.push({ id: WORD.get(tokens[i]), length: tokens[i].length, at: i });
+  }
+  return hits;
+}
+
+export function resolveHobby(text) {
+  const key = normalizeHobby(text);
+  const hits = mapHits(key);
+  let id = key;
+  if (hits.length) {
+    hits.sort((a, b) => b.length - a.length || b.at - a.at);
+    id = hits[0].id;
+  }
+  const known = clusterOf(id) != null;
+  return { id: known ? id : key, label: known ? hobbyLabel(id) : key, known };
+}
+
+function withinOneEdit(a, b) {
+  if (Math.abs(a.length - b.length) > 1) return false;
+  if (a === b) return true;
+  let edits = 0;
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    if (a[i] === b[j]) {
+      i += 1;
+      j += 1;
+      continue;
+    }
+    edits += 1;
+    if (edits > 1) return false;
+    if (a.length > b.length) i += 1;
+    else if (b.length > a.length) j += 1;
+    else {
+      i += 1;
+      j += 1;
+    }
+  }
+  edits += (a.length - i) + (b.length - j);
+  return edits === 1;
+}
+
+export function suggestHobby(text) {
+  const key = normalizeHobby(text);
+  if (!key) return null;
+  const resolved = resolveHobby(key);
+  if (resolved.known && resolved.id !== key) return { id: resolved.id, label: resolved.label };
+  if (key.length < 3 || key.includes(' ')) return null;
+  const ids = new Set();
+  for (const word of CATALOG) {
+    if (!withinOneEdit(key, word)) continue;
+    const id = WORD.get(word) || word;
+    if (clusterOf(id) != null) ids.add(id);
+  }
+  if (ids.size !== 1) return null;
+  const id = [...ids][0];
+  if (id === key) return null;
+  return { id, label: hobbyLabel(id) };
+}
+
+export function hobbyId(text) {
+  return resolveHobby(text).id;
 }
 
 export function clusterOf(tag) {
@@ -157,8 +248,12 @@ export function tagAffinity(a, b) {
 }
 
 export function personTags(person) {
-  return [...(person.interests || []), ...(person.hobbies || []), ...(person.activities || [])]
-    .map((t) => String(t).toLowerCase());
+  const tags = [...(person.interests || []), ...(person.activities || [])];
+  for (const hobby of person.hobbies || []) {
+    const resolved = resolveHobby(hobby);
+    if (resolved.known) tags.push(resolved.id);
+  }
+  return tags.map((t) => String(t).toLowerCase());
 }
 
 export function pairAffinity(a, b) {

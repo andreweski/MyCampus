@@ -1,6 +1,6 @@
 import {
-  ACTIVITIES, BANDS, DAY_LABELS, PEERS, activityById, clusterOf, pairAffinity, personTags,
-  placeById, sharedLanguage, tagAffinity, zonesClose,
+  ACTIVITIES, BANDS, DAY_LABELS, PEERS, activityById, clusterOf, hobbyId, hobbyLabel,
+  personTags, placeById, resolveHobby, tagAffinity, zonesClose,
 } from './data.js';
 
 function listAffinity(a, b) {
@@ -9,10 +9,102 @@ function listAffinity(a, b) {
   return scores.reduce((sum, n) => sum + n, 0) / scores.length;
 }
 
-function hobbyAffinity(a, b) {
-  const ha = (a.hobbies || []).map((t) => t.toLowerCase());
-  const hb = (b.hobbies || []).map((t) => t.toLowerCase());
-  return listAffinity(ha, hb);
+function documentFrequency(id, population) {
+  let count = 0;
+  for (const person of population) {
+    if ((person.hobbies || []).some((hobby) => hobbyId(hobby) === id)) count += 1;
+  }
+  return count;
+}
+
+function exactWeight(id, population) {
+  const total = Math.max(1, population.length);
+  const seen = Math.max(1, documentFrequency(id, population));
+  const scale = Math.log(total + 1);
+  const rarity = scale === 0 ? 0 : Math.log((total + 1) / (seen + 1)) / scale;
+  return 0.55 + 0.45 * rarity;
+}
+
+function hobbyMatch(a, b, population) {
+  const left = hobbyId(a);
+  const right = hobbyId(b);
+  if (!left || !right) return null;
+  if (left === right) return exactWeight(left, population);
+  if (!resolveHobby(left).known || !resolveHobby(right).known) return null;
+  return tagAffinity(left, right);
+}
+
+function bestHobbyScore(from, against, population) {
+  let best = null;
+  for (const hobby of from || []) {
+    for (const other of against || []) {
+      const score = hobbyMatch(hobby, other, population);
+      if (score == null) continue;
+      if (best == null || score > best) best = score;
+    }
+  }
+  return best;
+}
+
+function interestTags(person) {
+  const tags = [...(person.interests || [])];
+  for (const hobby of person.hobbies || []) {
+    const resolved = resolveHobby(hobby);
+    if (resolved.known) tags.push(resolved.id);
+  }
+  return tags.map((tag) => String(tag).toLowerCase());
+}
+
+function interestAffinity(a, b) {
+  return listAffinity(interestTags(a), interestTags(b));
+}
+
+function planAffinity(a, b) {
+  return listAffinity(
+    (a.activities || []).map((item) => String(item).toLowerCase()),
+    (b.activities || []).map((item) => String(item).toLowerCase()),
+  );
+}
+
+function pairHobby(a, b, population) {
+  const direct = bestHobbyScore(a.hobbies, b.hobbies, population);
+  if (direct != null) return direct;
+  return planAffinity(a, b) * 0.5;
+}
+
+function sharesEntry(user, person) {
+  const mine = new Set((user.hobbies || []).map((hobby) => hobbyId(hobby)));
+  if ((person.hobbies || []).some((hobby) => mine.has(hobbyId(hobby)))) return true;
+  const plans = new Set((user.activities || []).map((item) => String(item).toLowerCase()));
+  return (person.activities || []).some((item) => plans.has(String(item).toLowerCase()));
+}
+
+function sharedExact(user, peers) {
+  let ids = new Set((user.hobbies || []).map((hobby) => hobbyId(hobby)));
+  for (const peer of peers) {
+    const theirs = new Set((peer.hobbies || []).map((hobby) => hobbyId(hobby)));
+    ids = new Set([...ids].filter((id) => theirs.has(id)));
+  }
+  return [...ids];
+}
+
+function sharedPlan(user, peers) {
+  let plans = new Set((user.activities || []).map((item) => String(item).toLowerCase()));
+  for (const peer of peers) {
+    const theirs = new Set((peer.activities || []).map((item) => String(item).toLowerCase()));
+    plans = new Set([...plans].filter((item) => theirs.has(item)));
+  }
+  return [...plans][0] || '';
+}
+
+function learnedBoost(profile, activity, population) {
+  const ids = (profile.hobbies || []).map((hobby) => hobbyId(hobby));
+  let hits = 0;
+  for (const person of population) {
+    const table = person.availability?.outings || {};
+    for (const id of ids) hits += Number(table[id]?.[activity.id] || 0);
+  }
+  return Math.min(0.06, hits * 0.02);
 }
 
 function scheduleScore(members, window) {
@@ -132,42 +224,39 @@ function historyAdjust(peerIds, history) {
   return Math.min(0.12, familiarity * 0.03) - Math.min(0.28, repeat * 0.16);
 }
 
-function because(user, peer) {
-  const hobbies = sharedLanguage(
-    { hobbies: user.hobbies, interests: [], activities: [] },
-    { hobbies: peer.hobbies, interests: [], activities: [] },
-  );
-  if (hobbies.length) return `Free at the same time, and you both like ${hobbies[0]}`;
-  const shared = sharedLanguage(user, peer);
-  if (shared.length) return `Your hours overlap, and you are close on ${shared[0]}`;
+function because(user, peer, population) {
+  const shared = sharedExact(user, [peer])
+    .sort((a, b) => documentFrequency(a, population) - documentFrequency(b, population));
+  if (shared.length) return `Free at the same time, and you both like ${hobbyLabel(shared[0]).toLowerCase()}`;
+  const plan = sharedPlan(user, [peer]);
+  if (plan) return `Free at the same time, and you both are up for ${plan}`;
   if (zonesClose(user.zone, peer.zone)) return 'Free then, and usually on the same part of campus';
   return peer.vibe;
 }
 
-function whyGroup(user, peers, activity) {
+function whyGroup(user, peers, population) {
   const names = peers.map((p) => p.name.split(' ')[0]);
-  const who = names.length === 2 ? `${names[0]} and ${names[1]}` : `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}`;
-  const hobbies = sharedLanguage(
-    { hobbies: user.hobbies, interests: [], activities: [] },
-    { hobbies: peers.flatMap((p) => p.hobbies), interests: [], activities: [] },
-  );
-  const topic = hobbies[0] || activity.intents[0];
-  return `${who} are actually free then. The group stays small, and ${topic} is what you share.`;
+  const who = names.length === 1 ? names[0] : names.length === 2 ? `${names[0]} and ${names[1]}` : `${names.slice(0, -1).join(', ')}, and ${names.at(-1)}`;
+  const shared = sharedExact(user, peers)
+    .sort((a, b) => documentFrequency(a, population) - documentFrequency(b, population));
+  const topic = shared.length ? hobbyLabel(shared[0]).toLowerCase() : (sharedPlan(user, peers) || 'the same free time');
+  const verb = names.length === 1 ? 'is' : 'are';
+  return `${who} ${verb} actually free then. The group stays small, and ${topic} is what you share.`;
 }
 
-function scoreGroup(user, peers, activity, window, ask, history) {
+function scoreGroup(user, peers, activity, window, ask, history, population) {
   const members = [user, ...peers];
   const pairs = [];
   for (let i = 0; i < members.length; i += 1) {
-    for (let j = i + 1; j < members.length; j += 1) pairs.push(pairAffinity(members[i], members[j]));
+    for (let j = i + 1; j < members.length; j += 1) pairs.push(interestAffinity(members[i], members[j]));
   }
   const interest = pairs.reduce((s, n) => s + n, 0) / pairs.length;
   const hobbyPairs = [];
   for (let i = 0; i < members.length; i += 1) {
-    for (let j = i + 1; j < members.length; j += 1) hobbyPairs.push(hobbyAffinity(members[i], members[j]));
+    for (let j = i + 1; j < members.length; j += 1) hobbyPairs.push(pairHobby(members[i], members[j], population));
   }
   const hobby = hobbyPairs.reduce((s, n) => s + n, 0) / hobbyPairs.length;
-  const weakest = Math.min(...pairs, ...hobbyPairs);
+  const weakest = Math.min(...hobbyPairs);
   if (weakest < 0.12 || Math.max(hobby, interest) < 0.28) return null;
 
   const fit = activityFit(activity, members, ask);
@@ -231,13 +320,14 @@ export function recommend(profile, { passed = [], history = [], ask = null, now 
   if (!profile?.availability) return null;
   const day = now.getDay();
   if (ask?.start == null && !profile.availability.days?.includes(day)) return null;
+  const population = [profile, ...peers.filter((peer) => peer.id !== profile.id)];
 
   const windows = windowsFor(profile, day, ask).filter((w) => (ask || profile.availability.days.includes(day)));
   let best = null;
 
   for (const window of windows) {
     const duration = ask?.duration || null;
-    const free = peers.filter((p) => p.id !== profile.id && freeFor(p, day, window.start, window.end));
+    const free = peers.filter((p) => p.id !== profile.id && freeFor(p, day, window.start, window.end) && sharesEntry(profile, p));
     if (!free.length) continue;
     const wanted = popularSize([profile, ...free]);
     const target = fitTarget(wanted, free.length + 1);
@@ -283,10 +373,10 @@ export function recommend(profile, { passed = [], history = [], ask = null, now 
 
           const key = `${[...group.map((p) => p.id)].sort().join('.')}|${activity.id}|${window.start}`;
           if (passed.includes(key)) continue;
-          const judged = scoreGroup(profile, group, activity, window, ask, history);
+          const judged = scoreGroup(profile, group, activity, window, ask, history, population);
           if (!judged) continue;
           const agreement = [profile, ...group].filter((person) => acceptsSize(person, target)).length;
-          const rank = judged.score + agreement * 0.03;
+          const rank = judged.score + agreement * 0.03 + learnedBoost(profile, activity, population);
           if (!best || rank > best.rank) {
             best = { key, group, activity, start: window.start, end, window, judged, rank };
           }
@@ -307,8 +397,8 @@ export function recommend(profile, { passed = [], history = [], ask = null, now 
     end: best.end,
     day,
     dayLabel: DAY_LABELS[day],
-    peers: best.group.map((peer) => ({ ...peer, because: because(profile, peer) })),
-    why: whyGroup(profile, best.group, activity),
+    peers: best.group.map((peer) => ({ ...peer, because: because(profile, peer, population) })),
+    why: whyGroup(profile, best.group, population),
     ask: ask ? { ...ask } : null,
   };
 }

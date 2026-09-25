@@ -1,6 +1,6 @@
 import { useState } from 'react';
-import { BAND_LABELS, DAY_LABELS, INTERESTS, ZONES } from './data.js';
-import { logOut } from './store.js';
+import { BAND_LABELS, DAY_LABELS, INTERESTS, ZONES, hobbyId, hobbyLabel, normalizeHobby, resolveHobby, suggestHobby } from './data.js';
+import { logOut, noteOpenHobby } from './store.js';
 
 const empty = {
   name: '',
@@ -35,10 +35,25 @@ export function Onboarding({ onDone, initial, editing = false }) {
     form.availability.days.length >= 1 && form.availability.bands.length >= 1 && form.zone,
   ][step];
 
-  function addCustom() {
-    const value = custom.trim();
-    if (!value) return;
-    if (!form.hobbies.includes(value)) set({ hobbies: [...form.hobbies, value] });
+  const suggestion = suggestHobby(custom);
+  const suggestionTaken = suggestion && form.hobbies.some((hobby) => hobbyId(hobby) === suggestion.id);
+
+  function hasHobby(value) {
+    const id = hobbyId(value);
+    return form.hobbies.some((hobby) => hobbyId(hobby) === id);
+  }
+
+  function addHobby(raw, fromSuggestion) {
+    const key = normalizeHobby(raw);
+    if (!key || hasHobby(key)) {
+      setCustom('');
+      return;
+    }
+    const resolved = resolveHobby(key);
+    const typedName = resolved.known && hobbyLabel(resolved.id).toLowerCase() === key;
+    const stored = fromSuggestion || typedName ? hobbyLabel(fromSuggestion ? suggestion.id : resolved.id) : key;
+    set({ hobbies: [...form.hobbies, stored] });
+    if (!fromSuggestion && !resolved.known) noteOpenHobby(key);
     setCustom('');
   }
 
@@ -78,12 +93,21 @@ export function Onboarding({ onDone, initial, editing = false }) {
           </div>
           <label>Add your own
             <span className="row">
-              <input value={custom} onChange={(e) => setCustom(e.target.value)} placeholder="Bouldering, film photos…" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } }} />
-              <button type="button" className="ghost" onClick={addCustom}>Add</button>
+              <input value={custom} onChange={(e) => setCustom(e.target.value)} placeholder="Bouldering, film photos…" onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addHobby(custom, false); } }} />
+              <button type="button" className="ghost" onClick={() => addHobby(custom, false)}>Add</button>
             </span>
           </label>
+          {suggestion && !suggestionTaken && (
+            <p className="suggest">
+              <button type="button" onClick={() => addHobby(suggestion.label, true)}>{suggestion.label}</button>
+            </p>
+          )}
           {form.hobbies.some((item) => !INTERESTS.includes(item)) && (
-            <p className="whisper">{form.hobbies.filter((item) => !INTERESTS.includes(item)).join(' · ')}</p>
+            <div className="chips">
+              {form.hobbies.filter((item) => !INTERESTS.includes(item)).map((item) => (
+                <button type="button" key={item} className="on" onClick={() => set({ hobbies: form.hobbies.filter((hobby) => hobby !== item) })}>{item}</button>
+              ))}
+            </div>
           )}
         </section>
       )}

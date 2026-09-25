@@ -65,3 +65,24 @@ insert into profiles (id, name, major, hobbies, activities, energy, setting, gro
   ('55555555-5555-4555-8555-555555555555', 'Elena Vasquez', 'Art', array['Walking','Coffee'], array['Outdoors','Social'], 'calm', 'outdoors', 3, 'quad', '{"days":[1,3,4,5,6],"bands":["afternoon","evening"]}'::jsonb),
   ('66666666-6666-4666-8666-666666666666', 'Luis Ortega', 'Biology', array['Walking','Photography'], array['Food','Studying'], 'mixed', 'either', 3, 'science', '{"days":[1,2,3,4,5],"bands":["lunch","afternoon"]}'::jsonb)
 on conflict (id) do nothing;
+
+-- Spellings the hobby list does not know. Matching does not read this table.
+create table if not exists open_hobbies (
+  phrase text primary key,
+  count int default 1
+);
+
+alter table open_hobbies enable row level security;
+grant select, insert, update on open_hobbies to authenticated;
+
+drop policy if exists "students read open hobbies" on open_hobbies;
+create policy "students read open hobbies"
+  on open_hobbies for select to authenticated using (true);
+
+drop policy if exists "students insert open hobbies" on open_hobbies;
+create policy "students insert open hobbies"
+  on open_hobbies for insert to authenticated with check (true);
+
+drop policy if exists "students update open hobbies" on open_hobbies;
+create policy "students update open hobbies"
+  on open_hobbies for update to authenticated using (true);

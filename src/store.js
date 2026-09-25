@@ -1,4 +1,4 @@
-import { PLACES, placeById } from './data.js';
+import { PLACES, hobbyId, placeById } from './data.js';
 import { recommend } from './match.js';
 import { isSupabaseConfigured, supabase } from './supabase.js';
 
@@ -460,15 +460,27 @@ export function completePlan() {
   const earned = BADGES.filter((b) => !rewards.badges.includes(b.id) && b.need(rewards, completions)).map((b) => b.id);
   rewards.badges.push(...earned);
 
+  const hobbyIds = (state.profile.hobbies || []).map((hobby) => hobbyId(hobby));
+  const availability = { ...(state.profile.availability || {}) };
+  const outings = { ...(availability.outings || {}) };
+  for (const id of hobbyIds) {
+    const row = { ...(outings[id] || {}) };
+    row[plan.activityId] = (row[plan.activityId] || 0) + 1;
+    outings[id] = row;
+  }
+  availability.outings = outings;
+  const profile = { ...state.profile, availability };
   const history = [...state.history, {
     peerIds: plan.peers.map((p) => p.id),
     activityId: plan.activityId,
+    hobbyIds,
     status: 'completed',
     at: new Date().toISOString(),
   }];
 
   emit({
     ...state,
+    profile,
     rewards,
     history,
     plan: null,
@@ -479,11 +491,19 @@ export function completePlan() {
       title: plan.title,
       people: plan.peers.map((p) => p.name.split(' ')[0]),
     },
-    recommendation: freshRecommendation(state.profile, { passed: state.passed, history, ask: null }),
+    recommendation: freshRecommendation(profile, { passed: state.passed, history, ask: null }),
     ask: null,
     passed: [],
   });
   completing = false;
+}
+
+export async function noteOpenHobby(phrase) {
+  if (!isSupabaseConfigured || !phrase) return;
+  const { data, error } = await supabase.from('open_hobbies').select('count').eq('phrase', phrase).maybeSingle();
+  if (error) return;
+  if (!data) await supabase.from('open_hobbies').insert({ phrase, count: 1 });
+  else await supabase.from('open_hobbies').update({ count: data.count + 1 }).eq('phrase', phrase);
 }
 
 export function dismissReward() {

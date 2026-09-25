@@ -100,6 +100,14 @@ textarea { resize: vertical; }
   backdrop-filter: blur(8px);
 }
 .chips button { padding: 0.48rem 0.8rem; }
+.suggest { margin: 0.7rem 0 0; }
+.suggest button {
+  color: #fff;
+  background: transparent;
+  border: 1px solid rgba(255, 255, 255, 0.55);
+  border-radius: 999px;
+  padding: 0.45rem 0.85rem;
+}
 .chips button.on { background: white; color: #1a1a1a; border-color: white; }
 
 .actions { display: flex; gap: 0.6rem; margin-top: 1.3rem; flex-wrap: wrap; }
