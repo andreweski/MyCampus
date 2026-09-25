@@ -1,6 +1,8 @@
 # MyCampus
 
-Campus plans, stored in the browser. Deploy the `dist` folder on Netlify (`netlify.toml` is already set).
+Live site: https://mycampus-meets.netlify.app/
+
+Campus plans for students. Deploy the `dist` folder on Netlify (`netlify.toml` is already set).
 
 ```bash
 npm install
