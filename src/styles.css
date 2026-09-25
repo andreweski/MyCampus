@@ -199,10 +199,17 @@ textarea { resize: vertical; }
 .badge-pop { color: #b9e0ff; font-weight: 600; }
 .reward { display: grid; align-content: center; min-height: 100dvh; }
 
-.auth:has(.hero) { width: min(720px, 100%); }
+.auth:has(.hero) {
+  width: min(720px, 100%);
+  height: 100dvh;
+  min-height: 0;
+  padding: 1.2rem 1.2rem 1.4rem;
+  overflow: hidden;
+}
+html:has(.hero), body:has(.hero) { overflow: hidden; }
 .auth-bar { display: flex; align-items: center; justify-content: space-between; margin-bottom: 2.2rem; }
 .auth-bar .solid { font-weight: 600; color: #000; background: #fff; }
-.hero { min-height: calc(100dvh - 3rem); display: flex; flex-direction: column; align-items: center; text-align: center; }
+.hero { min-height: 0; height: 100%; display: flex; flex-direction: column; align-items: center; text-align: center; }
 .hero-copy {
   width: min(680px, calc(100% - 1.5rem));
   margin: auto 0;
@@ -259,9 +266,11 @@ textarea { resize: vertical; }
 @media (min-width: 900px) {
   .auth:has(.hero) {
     width: 100%;
-    min-height: 100dvh;
+    height: 100dvh;
+    min-height: 0;
     margin: 0;
-    padding: 1.2rem 1.6rem 2rem;
+    padding: 1.2rem 1.6rem 1.4rem;
+    overflow: hidden;
   }
   .auth-bar { position: relative; }
   .auth-bar .solid { position: fixed; top: 1.3rem; right: 1.6rem; z-index: 3; }
