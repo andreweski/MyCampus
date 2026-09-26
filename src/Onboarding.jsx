@@ -11,10 +11,31 @@ const empty = {
   energy: 'mixed',
   setting: 'either',
   groupSize: 3,
-  groupFlex: 'exact',
+  groupFlex: 'sizes',
+  groupSizes: [3],
+  bio: '',
   availability: { days: [1, 2, 3, 4, 5], bands: ['lunch'] },
   zone: 'union',
 };
+
+function snapSize(value) {
+  const size = Math.round(Number(value));
+  if (!Number.isFinite(size) || size < 2) return null;
+  const capped = Math.min(100, size);
+  if (capped <= 4) return capped;
+  return Math.max(5, Math.round(capped / 5) * 5);
+}
+
+function sizesFrom(source) {
+  if (Array.isArray(source?.groupSizes) && source.groupSizes.length) {
+    const groupSizes = [...new Set(source.groupSizes.map((n) => snapSize(n)).filter(Boolean))].sort((a, b) => a - b);
+    if (groupSizes.length) return { groupSizes, groupFlex: 'sizes', groupSize: groupSizes[0] };
+  }
+  if (source?.groupFlex === 'any' || source?.groupSize === 0) return { groupSizes: [], groupFlex: 'any', groupSize: 0 };
+  if (source?.groupFlex === 'atLeast') return { groupSizes: [5], groupFlex: 'sizes', groupSize: 5 };
+  const size = snapSize(source?.groupSize || 3) || 3;
+  return { groupSizes: [size], groupFlex: 'sizes', groupSize: size };
+}
 
 function toggle(list, value) {
   return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
@@ -22,7 +43,10 @@ function toggle(list, value) {
 
 export function Onboarding({ onDone, initial, editing = false }) {
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState(initial ? { ...empty, ...initial } : empty);
+  const [form, setForm] = useState(() => {
+    const base = initial ? { ...empty, ...initial } : empty;
+    return { ...base, ...sizesFrom(initial || null), bio: initial?.bio || '' };
+  });
   const [custom, setCustom] = useState('');
   const [customOpen, setCustomOpen] = useState(false);
   const [customSize, setCustomSize] = useState('');
@@ -57,11 +81,37 @@ export function Onboarding({ onDone, initial, editing = false }) {
     setCustom('');
   }
 
+  function chooseSizes(sizes) {
+    const groupSizes = [...new Set(sizes)].sort((a, b) => a - b);
+    if (!groupSizes.length) return;
+    set({ groupSizes, groupFlex: 'sizes', groupSize: groupSizes[0] });
+  }
+
+  function toggleSize(size) {
+    setCustomOpen(false);
+    const current = form.groupFlex === 'any' ? [] : form.groupSizes;
+    if (current.includes(size)) {
+      chooseSizes(current.filter((item) => item !== size));
+      return;
+    }
+    chooseSizes([...current, size]);
+  }
+
+  function addCustom() {
+    const size = snapSize(customSize);
+    if (!size) return;
+    const current = form.groupFlex === 'any' ? [] : form.groupSizes;
+    chooseSizes([...current, size]);
+    setCustomSize('');
+    setCustomOpen(false);
+  }
+
   function finish() {
     onDone({
       ...form,
       name: form.name.trim(),
       major: form.major.trim(),
+      bio: form.bio.trim().slice(0, 400),
     });
   }
 
@@ -79,6 +129,10 @@ export function Onboarding({ onDone, initial, editing = false }) {
           <p className="lede">A light profile. Plans are built from when you are free and what you like to do.</p>
           <label>Name<input value={form.name} onChange={(e) => set({ name: e.target.value })} placeholder="Maya Lopez" /></label>
           <label>Major, if you want it listed<input value={form.major} onChange={(e) => set({ major: e.target.value })} placeholder="Computer Science" /></label>
+          <label>A short bio, if you want one
+            <textarea value={form.bio} maxLength={400} rows={3} onChange={(e) => set({ bio: e.target.value })} placeholder="Quiet mornings in the library, or a walk after class." />
+          </label>
+          <p className="whisper">Optional. Leave it blank and plans still come from your hobbies, preferred plans, and free time.</p>
         </section>
       )}
 
@@ -115,22 +169,25 @@ export function Onboarding({ onDone, initial, editing = false }) {
       {step === 2 && (
         <section>
           <h1>How should the plan feel?</h1>
-          <p className="lede">The plan uses the size you pick here. Everyone in it still has to be free and share a hobby.</p>
+          <p className="lede">Pick every size you are open to. Everyone in the plan still has to be free and share a hobby.</p>
           <p className="label">How many people, including you</p>
           <div className="chips">
-            {[[2, '2', 'exact'], [3, '3', 'exact'], [4, '4', 'exact'], [5, '5+', 'atLeast'], [0, 'Any', 'any']].map(([id, label, flex]) => (
-              <button type="button" key={label} className={form.groupFlex === flex && form.groupSize === id ? 'on' : ''} onClick={() => { setCustomOpen(false); set({ groupSize: id, groupFlex: flex }); }}>{label}</button>
+            {[2, 3, 4].map((size) => (
+              <button type="button" key={size} className={form.groupFlex !== 'any' && form.groupSizes.includes(size) ? 'on' : ''} onClick={() => toggleSize(size)}>{size}</button>
             ))}
-            <button type="button" className={form.groupFlex === 'custom' ? 'on' : ''} onClick={() => setCustomOpen(true)}>+</button>
+            <button type="button" className={form.groupFlex !== 'any' && form.groupSizes.includes(5) ? 'on' : ''} onClick={() => toggleSize(5)}>5+</button>
+            <button type="button" className={form.groupFlex === 'any' ? 'on' : ''} onClick={() => { setCustomOpen(false); set({ groupFlex: 'any', groupSize: 0, groupSizes: [] }); }}>Any</button>
+            <button type="button" className={customOpen ? 'on' : ''} onClick={() => setCustomOpen((open) => !open)}>+</button>
+            {form.groupFlex !== 'any' && form.groupSizes.filter((size) => size > 5).map((size) => (
+              <button type="button" key={size} className="on" onClick={() => toggleSize(size)}>{size}</button>
+            ))}
           </div>
           {customOpen && (
-            <label>Custom size, including you
-              <input type="number" min="2" max="12" value={customSize} placeholder="6" onChange={(e) => {
-                const next = e.target.value;
-                setCustomSize(next);
-                const count = Number(next);
-                if (count >= 2) set({ groupSize: Math.min(12, count), groupFlex: 'custom' });
-              }} />
+            <label>Another size, including you
+              <span className="row">
+                <input type="number" min="2" max="100" value={customSize} placeholder="100" onChange={(e) => setCustomSize(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } }} />
+                <button type="button" className="ghost" onClick={addCustom}>Add</button>
+              </span>
             </label>
           )}
           <p className="label">Energy</p>

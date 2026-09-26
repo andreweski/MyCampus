@@ -36,6 +36,8 @@ function rowToPerson(row) {
     setting: row.setting || 'either',
     groupSize: row.availability?.groupSize ?? (row.group_size == null ? 0 : row.group_size),
     groupFlex: row.availability?.groupFlex || 'exact',
+    groupSizes: Array.isArray(row.availability?.groupSizes) ? row.availability.groupSizes : null,
+    bio: row.availability?.bio || '',
     zone: row.zone || 'union',
     availability: row.availability || { days: [], bands: [] },
     vibe: 'On campus',
@@ -51,6 +53,16 @@ async function loadPool() {
   pool = (data || []).filter((row) => row.name).map(rowToPerson);
 }
 
+function storedGroupSize(profile) {
+  if (profile.groupFlex === 'any') return null;
+  const sizes = Array.isArray(profile.groupSizes) ? profile.groupSizes : [];
+  const small = sizes.find((n) => n >= 2 && n <= 4);
+  if (small) return small;
+  const one = Math.round(Number(profile.groupSize));
+  if (one >= 2 && one <= 4) return one;
+  return null;
+}
+
 async function persist(next) {
   if (!isSupabaseConfigured || !next.userId || !next.profile) return;
   const profile = next.profile;
@@ -62,12 +74,14 @@ async function persist(next) {
     activities: profile.activities || [],
     energy: profile.energy || 'mixed',
     setting: profile.setting || 'either',
-    group_size: profile.groupFlex === 'any' ? null : Math.min(4, Math.max(2, Number(profile.groupSize) || 3)),
+    group_size: storedGroupSize(profile),
     zone: profile.zone || 'union',
     availability: {
       ...(profile.availability || { days: [], bands: [] }),
-      groupFlex: profile.groupFlex || 'exact',
+      groupFlex: profile.groupFlex || 'sizes',
       groupSize: profile.groupFlex === 'any' ? 0 : Math.max(2, Number(profile.groupSize) || 3),
+      groupSizes: profile.groupFlex === 'any' ? [] : (profile.groupSizes || []),
+      bio: (profile.bio || '').trim().slice(0, 400),
     },
   });
   await supabase.from('private_state').upsert({

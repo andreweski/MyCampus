@@ -11,7 +11,7 @@ create table if not exists profiles (
   setting text default 'either',
   group_size int default 3 check (group_size is null or group_size between 2 and 12),
   zone text default 'union',
-  availability jsonb default '{"days":[],"bands":[]}'::jsonb,
+  availability jsonb default '{"days":[],"bands":[]}'::jsonb, -- also groupFlex, groupSize, groupSizes, and optional bio
   updated_at timestamptz default now()
 );
 

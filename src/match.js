@@ -9,12 +9,24 @@ function listAffinity(a, b) {
   return scores.reduce((sum, n) => sum + n, 0) / scores.length;
 }
 
+const frequencyCache = new WeakMap();
+
 function documentFrequency(id, population) {
-  let count = 0;
-  for (const person of population) {
-    if ((person.hobbies || []).some((hobby) => hobbyId(hobby) === id)) count += 1;
+  let table = frequencyCache.get(population);
+  if (!table) {
+    table = new Map();
+    for (const person of population) {
+      const seen = new Set();
+      for (const hobby of person.hobbies || []) {
+        const key = hobbyId(hobby);
+        if (!key || seen.has(key)) continue;
+        seen.add(key);
+        table.set(key, (table.get(key) || 0) + 1);
+      }
+    }
+    frequencyCache.set(population, table);
   }
-  return count;
+  return table.get(id) || 0;
 }
 
 function exactWeight(id, population) {
@@ -241,10 +253,12 @@ function whyGroup(user, peers, population) {
     .sort((a, b) => documentFrequency(a, population) - documentFrequency(b, population));
   const topic = shared.length ? hobbyLabel(shared[0]).toLowerCase() : (sharedPlan(user, peers) || 'the same free time');
   const verb = names.length === 1 ? 'is' : 'are';
-  return `${who} ${verb} actually free then. The group stays small, and ${topic} is what you share.`;
+  const size = peers.length + 1;
+  const shape = size <= 4 ? 'The group stays small' : `The group is ${size}`;
+  return `${who} ${verb} actually free then. ${shape}, and ${topic} is what you share.`;
 }
 
-function scoreGroup(user, peers, activity, window, ask, history, population) {
+function groupBase(user, peers, window, history, population) {
   const members = [user, ...peers];
   const pairs = [];
   for (let i = 0; i < members.length; i += 1) {
@@ -258,35 +272,98 @@ function scoreGroup(user, peers, activity, window, ask, history, population) {
   const hobby = hobbyPairs.reduce((s, n) => s + n, 0) / hobbyPairs.length;
   const weakest = Math.min(...hobbyPairs);
   if (weakest < 0.12 || Math.max(hobby, interest) < 0.28) return null;
-
-  const fit = activityFit(activity, members, ask);
-  if (fit < 0.28) return null;
-
-  const place = placeById(activity.place);
-  const proximity = members.filter((m) => zonesClose(m.zone, place.zone)).length / members.length;
   const schedule = scheduleScore(members, window);
   const sameMajor = peers.filter((p) => p.major && p.major === user.major).length / peers.length;
   const past = historyAdjust(peers.map((p) => p.id), history);
-  const liked = place && (user.preferredPlaces || []).includes(place.id) ? 0.07 : 0;
-  const score = schedule * 0.34 + hobby * 0.32 + fit * 0.18 + interest * 0.08 + proximity * 0.05 + sameMajor * 0.03 + past + liked;
-  return { score, interest: hobby, fit, proximity };
+  return { members, hobby, interest, schedule, sameMajor, past };
 }
+
+function scoreGroup(base, activity, ask, user) {
+  const fit = activityFit(activity, base.members, ask);
+  if (fit < 0.28) return null;
+  const place = placeById(activity.place);
+  const proximity = base.members.filter((m) => zonesClose(m.zone, place.zone)).length / base.members.length;
+  const liked = place && (user.preferredPlaces || []).includes(place.id) ? 0.07 : 0;
+  const score = base.schedule * 0.34 + base.hobby * 0.32 + fit * 0.18 + base.interest * 0.08 + proximity * 0.05 + base.sameMajor * 0.03 + base.past + liked;
+  return { score, interest: base.hobby, fit, proximity };
+}
+
+const BIO_STOP = new Set(['a', 'an', 'the', 'and', 'or', 'to', 'of', 'in', 'on', 'for', 'with', 'my', 'i', 'im', 'me', 'is', 'it', 'that', 'this', 'be', 'am', 'are', 'was', 'at', 'from', 'just', 'like', 'really', 'very', 'also', 'but', 'so', 'if', 'your', 'you', 'we', 'our']);
+const COMBINATION_LIMIT = 24;
 
 function roundSize(value) {
   const size = Math.max(2, Number(value) || 3);
   if (size <= 4) return size;
-  return Math.max(5, Math.round(size / 5) * 5);
+  return Math.min(100, Math.max(5, Math.round(size / 5) * 5));
 }
 
-function votedSize(person) {
+function acceptedSizes(person) {
+  const listed = Array.isArray(person.groupSizes) && person.groupSizes.length
+    ? person.groupSizes
+    : (Array.isArray(person.availability?.groupSizes) && person.availability.groupSizes.length ? person.availability.groupSizes : null);
+  if (listed) {
+    const sizes = [...new Set(listed.map((n) => roundSize(n)))].filter((n) => n >= 2 && n <= 100);
+    sizes.sort((a, b) => a - b);
+    if (sizes.length) return sizes;
+  }
   if (person.groupFlex === 'any' || person.groupSize === 0) return null;
-  if (person.groupFlex === 'atLeast') return 5;
-  return roundSize(person.groupSize);
+  if (person.groupFlex === 'atLeast') return [5];
+  if (person.groupSize == null && !person.groupFlex) return [3];
+  return [roundSize(person.groupSize)];
 }
 
 function acceptsSize(person, size) {
-  if (person.groupFlex === 'any' || person.groupSize === 0) return true;
-  return votedSize(person) === size;
+  const sizes = acceptedSizes(person);
+  if (sizes == null) return true;
+  return sizes.includes(size);
+}
+
+function bioTokens(person) {
+  const plans = new Set((person.activities || []).map((item) => String(item).toLowerCase()));
+  const words = String(person.bio || person.availability?.bio || '').toLowerCase().match(/[a-z0-9]+/g) || [];
+  return [...new Set(words.filter((word) => word.length > 2 && !BIO_STOP.has(word) && !plans.has(word)))];
+}
+
+function bioScore(a, b) {
+  const left = bioTokens(a);
+  const right = bioTokens(b);
+  if (!left.length || !right.length) return 0;
+  const have = new Set(right);
+  let shared = 0;
+  for (const word of left) if (have.has(word)) shared += 1;
+  if (!shared) return 0;
+  return shared / Math.sqrt(left.length * right.length);
+}
+
+function bioAffinity(user, peers) {
+  if (!peers.length) return 0;
+  return peers.reduce((sum, peer) => sum + bioScore(user, peer), 0) / peers.length;
+}
+
+function scheduleCover(person, window) {
+  const bands = person.availability?.bands || [];
+  const holding = bands
+    .map((name) => BANDS[name])
+    .filter(Boolean)
+    .find(([start, end]) => start <= window.start && end >= window.end);
+  if (!holding) return 0.35;
+  const slack = Math.min(holding[1] - window.end, window.start - holding[0]);
+  return slack >= 20 ? 1 : 0.72;
+}
+
+function limitPool(user, pool, window, population, peerCount) {
+  const limit = peerCount <= 4 ? COMBINATION_LIMIT : peerCount;
+  if (pool.length <= limit) return pool;
+  const hobby = [];
+  const plan = [];
+  for (const person of pool) {
+    if (sharedExact(user, [person]).length) hobby.push(person);
+    else plan.push(person);
+  }
+  const byHobby = (a, b) => pairHobby(user, b, population) - pairHobby(user, a, population);
+  hobby.sort(byHobby);
+  plan.sort((a, b) => (bioScore(user, b) - bioScore(user, a)) || (scheduleCover(b, window) - scheduleCover(a, window)) || byHobby(a, b));
+  return [...hobby, ...plan].slice(0, limit);
 }
 
 function fitTarget(wanted, available) {
@@ -301,9 +378,9 @@ function fitTarget(wanted, available) {
 function popularSize(people) {
   const counts = new Map();
   for (const person of people) {
-    const vote = votedSize(person);
-    if (!vote) continue;
-    counts.set(vote, (counts.get(vote) || 0) + 1);
+    const votes = acceptedSizes(person);
+    if (!votes) continue;
+    for (const vote of votes) counts.set(vote, (counts.get(vote) || 0) + 1);
   }
   let best = null;
   let bestCount = 0;
@@ -329,13 +406,8 @@ export function recommend(profile, { passed = [], history = [], ask = null, now 
     const duration = ask?.duration || null;
     const free = peers.filter((p) => p.id !== profile.id && freeFor(p, day, window.start, window.end) && sharesEntry(profile, p));
     if (!free.length) continue;
-    const wanted = popularSize([profile, ...free]);
-    const target = fitTarget(wanted, free.length + 1);
-    let peerCount = Math.max(1, target - 1);
-    const willing = free.filter((person) => acceptsSize(person, target) || acceptsSize(person, wanted));
-    const pool = willing.length >= peerCount ? willing : [...willing, ...free.filter((person) => !willing.includes(person))];
-    if (pool.length < peerCount) peerCount = pool.length;
-    const groups = peerCount <= 4 ? combinations(pool, peerCount) : [pool.slice(0, peerCount)];
+    const chosen = acceptedSizes(profile);
+    const sizes = chosen || [fitTarget(popularSize([profile, ...free]), free.length + 1)];
 
     let activities = ACTIVITIES.filter((activity) => {
       const length = duration || activity.duration;
@@ -362,7 +434,22 @@ export function recommend(profile, { passed = [], history = [], ask = null, now 
       }
     }
 
-    for (const group of groups) {
+    for (const size of sizes) {
+      const peerCount = size - 1;
+      if (peerCount < 1) continue;
+      let willing = free.filter((person) => acceptsSize(person, size));
+      if (!chosen && willing.length < peerCount) {
+        willing = [...willing, ...free.filter((person) => !willing.includes(person))];
+      }
+      if (willing.length < peerCount) continue;
+      const limited = limitPool(profile, willing, window, population, peerCount);
+      const groups = peerCount <= 4 ? combinations(limited, peerCount) : [limited.slice(0, peerCount)];
+
+      for (const group of groups) {
+        const base = groupBase(profile, group, window, history, population);
+        if (!base) continue;
+        const agreement = [profile, ...group].filter((person) => acceptsSize(person, size)).length;
+        const bio = bioAffinity(profile, group) * 0.04;
         for (const activity of activities) {
           const length = duration || activity.duration;
           const end = window.start + length;
@@ -373,15 +460,15 @@ export function recommend(profile, { passed = [], history = [], ask = null, now 
 
           const key = `${[...group.map((p) => p.id)].sort().join('.')}|${activity.id}|${window.start}`;
           if (passed.includes(key)) continue;
-          const judged = scoreGroup(profile, group, activity, window, ask, history, population);
+          const judged = scoreGroup(base, activity, ask, profile);
           if (!judged) continue;
-          const agreement = [profile, ...group].filter((person) => acceptsSize(person, target)).length;
-          const rank = judged.score + agreement * 0.03 + learnedBoost(profile, activity, population);
+          const rank = judged.score + agreement * 0.03 + learnedBoost(profile, activity, population) + bio;
           if (!best || rank > best.rank) {
             best = { key, group, activity, start: window.start, end, window, judged, rank };
           }
         }
       }
+    }
   }
 
   if (!best) return null;

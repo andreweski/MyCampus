@@ -85,6 +85,7 @@ export function Profile({ state }) {
         </div>
       </div>
       {profile.major && <p className="lede">{profile.major}</p>}
+      {profile.bio && <p className="lede">{profile.bio}</p>}
       <p className="whisper">Usually near the {ZONES.find((z) => z.id === profile.zone)?.label}. Energy {profile.energy}, {profile.setting}.</p>
       <p className="privacy">Your usual spot is a preference, stored on this device. Check-in is the only moment that stands in for proximity, and it applies to one agreed plan.</p>
       <p className="whisper">Signed in as {state.accountEmail}</p>
