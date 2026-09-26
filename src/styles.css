@@ -165,6 +165,40 @@ textarea { resize: vertical; }
 
 .ask { margin-top: 1.4rem; }
 .ask label, .ask .whisper { color: white; }
+.ask-edit { margin: 0.85rem 0 0.4rem; }
+.ask-tags { display: flex; flex-wrap: wrap; gap: 0.4rem; margin-top: 0; }
+.ask-tags .tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.35rem;
+  width: auto;
+  margin: 0;
+  padding: 0.38rem 0.8rem;
+  border: 0;
+  border-radius: 999px;
+  background: #fff;
+  color: #1a1a1a;
+  color-scheme: light;
+  backdrop-filter: none;
+  font-size: 0.92rem;
+  font-weight: 650;
+  cursor: pointer;
+}
+.ask-tags .tag input {
+  width: auto;
+  margin: 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: transparent;
+  color: #1a1a1a;
+  color-scheme: light;
+  backdrop-filter: none;
+  font-weight: 650;
+}
+.ask-tags input.tag { width: 8rem; cursor: text; }
+.ask-tags input[type="time"] { width: 6.3rem; }
+.ask-tags input[type="date"] { width: 9.4rem; }
 .banner {
   width: 100%;
   text-align: left;

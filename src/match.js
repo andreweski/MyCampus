@@ -2,6 +2,7 @@ import {
   ACTIVITIES, BANDS, DAY_LABELS, PEERS, activityById, clusterOf, hobbyId, hobbyLabel,
   personTags, placeById, resolveHobby, tagAffinity, zonesClose,
 } from './data.js';
+import { formatAskDate } from './parse.js';
 
 function listAffinity(a, b) {
   if (!a.length || !b.length) return 0;
@@ -395,7 +396,7 @@ function popularSize(people) {
 
 export function recommend(profile, { passed = [], history = [], ask = null, now = new Date(), peers = PEERS } = {}) {
   if (!profile?.availability) return null;
-  const day = now.getDay();
+  const day = Number.isInteger(ask?.day) ? ask.day : now.getDay();
   if (ask?.start == null && !profile.availability.days?.includes(day)) return null;
   const population = [profile, ...peers.filter((peer) => peer.id !== profile.id)];
 
@@ -483,7 +484,7 @@ export function recommend(profile, { passed = [], history = [], ask = null, now 
     start: best.start,
     end: best.end,
     day,
-    dayLabel: DAY_LABELS[day],
+    dayLabel: ask?.date ? formatAskDate(ask.date) : DAY_LABELS[day],
     peers: best.group.map((peer) => ({ ...peer, because: because(profile, peer, population) })),
     why: whyGroup(profile, best.group, population),
     ask: ask ? { ...ask } : null,
