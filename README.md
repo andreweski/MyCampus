@@ -5,20 +5,30 @@ Live site: https://mycampus-meets.netlify.app/
 MyCampus matches students for one campus activity at a time they are all free. A student sets preferences, gets a recommendation, accepts it, and checks in when the group meets.
 
 ## Main Pages
-Front page:
-<img width="1412" height="705" alt="image" src="https://github.com/user-attachments/assets/b284d791-73cf-49a5-a44c-d333683fb9dc" />
+<h2>Front Page</h2>
+<img src="https://github.com/user-attachments/assets/b284d791-73cf-49a5-a44c-d333683fb9dc" alt="Front page" width="800">
 
-Today page:
-<img width="306" height="692" alt="image" src="https://github.com/user-attachments/assets/e3ab0dae-50b0-40be-a09b-e20197fbfede" />
-
-Campus Map page:
-<img width="317" height="519" alt="image" src="https://github.com/user-attachments/assets/9f6eb3cc-c006-43ed-a745-d8da6c9cce96" />
-
-Rewards page:
-<img width="285" height="499" alt="image" src="https://github.com/user-attachments/assets/6534babe-91e9-477a-b518-533acae7a2ed" />
-
-Profile page:
-<img width="301" height="445" alt="image" src="https://github.com/user-attachments/assets/a2ae883d-34ee-4c01-afb8-70d2b308c9e0" />
+<h2>App Screens</h2>
+<table>
+  <tr>
+    <td align="center">
+      <strong>Today Page</strong><br>
+      <img src="https://github.com/user-attachments/assets/e3ab0dae-50b0-40be-a09b-e20197fbfede" alt="Today page" width="210">
+    </td>
+    <td align="center">
+      <strong>Campus Map Page</strong><br>
+      <img src="https://github.com/user-attachments/assets/9f6eb3cc-c006-43ed-a745-d8da6c9cce96" alt="Campus Map page" width="210">
+    </td>
+    <td align="center">
+      <strong>Rewards Page</strong><br>
+      <img src="https://github.com/user-attachments/assets/6534babe-91e9-477a-b518-533acae7a2ed" alt="Rewards page" width="210">
+    </td>
+    <td align="center">
+      <strong>Profile Page</strong><br>
+      <img src="https://github.com/user-attachments/assets/a2ae883d-34ee-4c01-afb8-70d2b308c9e0" alt="Profile page" width="210">
+    </td>
+  </tr>
+</table>
 
 ## What a student does
 
