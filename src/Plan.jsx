@@ -1,5 +1,5 @@
 import { useEffect } from 'react';
-import { formatRange } from './match.js';
+import { PREVIEW_COUNT, formatRange } from './match.js';
 import { cancelPlan, completePlan, markHere, markPeerHere } from './store.js';
 import { Avatar, CampusMap } from './ui.jsx';
 
@@ -18,6 +18,9 @@ export function Plan({ plan }) {
     return () => clearTimeout(timer);
   }, [plan]);
 
+  const shown = plan.roster === 'preview' || plan.roster === 'count' ? plan.peers.slice(0, PREVIEW_COUNT) : plan.peers;
+  const hidden = Math.max(0, (plan.crowdCount || plan.peers.length + 1) - 1 - shown.length);
+
   return (
     <main className="screen">
       <p className="kicker">You are going</p>
@@ -30,7 +33,7 @@ export function Plan({ plan }) {
           <span className={`dot ${plan.userHere ? 'on' : ''}`} />
           <div><strong>You</strong><span>{plan.userHere ? 'Here' : 'Not checked in'}</span></div>
         </li>
-        {plan.peers.map((peer) => (
+        {shown.map((peer) => (
           <li key={peer.id}>
             <Avatar person={peer} size={40} />
             <div>
@@ -40,6 +43,7 @@ export function Plan({ plan }) {
           </li>
         ))}
       </ul>
+      {hidden > 0 && <p className="whisper">And {hidden.toLocaleString('en-US')} more people are in this plan.</p>}
       {!plan.userHere && (
         <button type="button" className="solid accent" onClick={markHere}>I&apos;m here</button>
       )}

@@ -21,9 +21,8 @@ const empty = {
 function snapSize(value) {
   const size = Math.round(Number(value));
   if (!Number.isFinite(size) || size < 2) return null;
-  const capped = Math.min(100, size);
-  if (capped <= 4) return capped;
-  return Math.max(5, Math.round(capped / 5) * 5);
+  if (size <= 4) return size;
+  return Math.max(5, Math.round(size / 5) * 5);
 }
 
 function sizesFrom(source) {
@@ -185,7 +184,7 @@ export function Onboarding({ onDone, initial, editing = false }) {
           {customOpen && (
             <label>Another size, including you
               <span className="row">
-                <input type="number" min="2" max="100" value={customSize} placeholder="100" onChange={(e) => setCustomSize(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } }} />
+                <input type="number" min="2" value={customSize} placeholder="40" onChange={(e) => setCustomSize(e.target.value)} onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); addCustom(); } }} />
                 <button type="button" className="ghost" onClick={addCustom}>Add</button>
               </span>
             </label>

@@ -275,6 +275,7 @@ function resolveWhen(text, now) {
         ? weekdayInWeek(addDays(weekMonday(today), 7 * shift), weekdayIndex(word))
         : weekdayOnOrAfter(today, weekdayIndex(word));
     }
+    if (date < today) date = addDays(date, 7);
     return { date, marks: [spanOf(named)] };
   }
 

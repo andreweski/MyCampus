@@ -201,6 +201,23 @@ export function hobbyId(text) {
   return resolveHobby(text).id;
 }
 
+export function hobbyQueryLabels(hobbies) {
+  const ids = new Set((hobbies || []).map((hobby) => hobbyId(hobby)).filter(Boolean));
+  const labels = new Set();
+  for (const hobby of hobbies || []) {
+    const text = String(hobby || '').trim();
+    if (text) labels.add(text);
+  }
+  for (const [form, canon] of WORD) {
+    if (!ids.has(canon) && !ids.has(form)) continue;
+    labels.add(form);
+    labels.add(canon);
+    labels.add(hobbyLabel(form));
+    labels.add(hobbyLabel(canon));
+  }
+  return [...labels];
+}
+
 export function clusterOf(tag) {
   const canon = canonOf(tag);
   return CLUSTER_OF.get(canon) || CLUSTER_OF.get(String(tag || '').toLowerCase().trim()) || null;

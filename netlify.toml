@@ -8,6 +8,16 @@
   directory = "netlify/functions"
 
 # Also add BREVO_SMTP_USER, BREVO_SMTP_KEY, and BREVO_FROM in the Netlify site settings.
+[[headers]]
+  for = "/campus.webp"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
+[[headers]]
+  for = "/campus.jpg"
+  [headers.values]
+    Cache-Control = "public, max-age=31536000, immutable"
+
 [[redirects]]
   from = "/api/send-code"
   to = "/.netlify/functions/send-code"

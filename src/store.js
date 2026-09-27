@@ -1,5 +1,5 @@
-import { PLACES, hobbyId, placeById } from './data.js';
-import { recommend } from './match.js';
+import { PLACES, hobbyId, hobbyQueryLabels, placeById } from './data.js';
+import { DOWNLOAD_CAP, PAIR_POOL, nextOpenDay, recommend, searchSizes, windowBands } from './match.js';
 import { isSupabaseConfigured, supabase } from './supabase.js';
 
 const KEY = 'mycampus.v1';
@@ -18,10 +18,14 @@ const empty = {
   ask: null,
   signupConfirmed: true,
   campus: { conquered: [], preferred: [] },
+  searching: false,
 };
 
 let state = load();
 let pool = [];
+let rarity = null;
+let shortlist = [];
+let shortlistKey = '';
 const listeners = new Set();
 
 function rowToPerson(row) {
@@ -63,10 +67,13 @@ function storedGroupSize(profile) {
   return null;
 }
 
-async function persist(next) {
-  if (!isSupabaseConfigured || !next.userId || !next.profile) return;
+let lastPersistUser = '';
+let lastProfileWrite = '';
+let lastPrivateWrite = '';
+
+function profileRow(next) {
   const profile = next.profile;
-  await supabase.from('profiles').upsert({
+  return {
     id: next.userId,
     name: profile.name,
     major: profile.major || '',
@@ -83,8 +90,11 @@ async function persist(next) {
       groupSizes: profile.groupFlex === 'any' ? [] : (profile.groupSizes || []),
       bio: (profile.bio || '').trim().slice(0, 400),
     },
-  });
-  await supabase.from('private_state').upsert({
+  };
+}
+
+function privateRow(next) {
+  return {
     id: next.userId,
     passed: next.passed,
     history: next.history,
@@ -92,7 +102,38 @@ async function persist(next) {
     recommendation: next.recommendation,
     plan: next.plan,
     ask: next.ask,
-  });
+  };
+}
+
+function rememberPersist(next) {
+  lastPersistUser = next.userId || '';
+  lastProfileWrite = next.userId && next.profile ? JSON.stringify(profileRow(next)) : '';
+  lastPrivateWrite = next.userId ? JSON.stringify(privateRow(next)) : '';
+}
+
+function persist(next) {
+  if (!isSupabaseConfigured || !next.userId || !next.profile || next.searching) return;
+  if (lastPersistUser !== next.userId) {
+    lastPersistUser = next.userId;
+    lastProfileWrite = '';
+    lastPrivateWrite = '';
+  }
+  const profile = profileRow(next);
+  const priv = privateRow(next);
+  const profileKey = JSON.stringify(profile);
+  const privateKey = JSON.stringify(priv);
+  if (profileKey !== lastProfileWrite) {
+    lastProfileWrite = profileKey;
+    void supabase.from('profiles').upsert(profile).then(({ error }) => {
+      if (error && lastProfileWrite === profileKey) lastProfileWrite = '';
+    });
+  }
+  if (privateKey !== lastPrivateWrite) {
+    lastPrivateWrite = privateKey;
+    void supabase.from('private_state').upsert(priv).then(({ error }) => {
+      if (error && lastPrivateWrite === privateKey) lastPrivateWrite = '';
+    });
+  }
 }
 
 function campusOf(raw) {
@@ -161,7 +202,6 @@ function emit(next) {
 }
 
 async function hydrate(user) {
-  await loadPool();
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
   const { data: priv } = await supabase.from('private_state').select('*').eq('id', user.id).maybeSingle();
   const person = profile?.name ? rowToPerson(profile) : null;
@@ -170,7 +210,7 @@ async function hydrate(user) {
   const history = priv?.history || [];
   const ask = priv?.ask || null;
   const campus = campusOf(rawRewards);
-  emit({
+  const next = {
     ...structuredClone(empty),
     userId: user.id,
     accountEmail: user.email,
@@ -179,11 +219,17 @@ async function hydrate(user) {
     history,
     rewards: rewardsOf(rawRewards),
     campus,
-    recommendation: priv?.recommendation || (person ? freshRecommendation(person, { passed, history, ask, preferred: campus.preferred }) : null),
+    recommendation: priv?.recommendation || null,
     plan: priv?.plan || null,
     ask,
     signupConfirmed: priv?.signup_confirmed !== false,
-  });
+    searching: Boolean(person && !priv?.recommendation && !priv?.plan),
+  };
+  rememberPersist(next);
+  emit(next);
+  if (person && !priv?.recommendation && !priv?.plan) {
+    requestRecommendation(person, { passed, history, ask, preferred: campus.preferred }, {});
+  }
 }
 
 export async function init() {
@@ -297,6 +343,7 @@ export function logIn(email, passwordHash) {
 }
 
 export async function logOut() {
+  searchToken += 1;
   if (isSupabaseConfigured) await supabase.auth.signOut();
   emit(structuredClone(empty));
 }
@@ -314,15 +361,234 @@ function dayKey(date = new Date()) {
   return date.toISOString().slice(0, 10);
 }
 
-function freshRecommendation(profile, extra) {
-  const person = { ...profile, preferredPlaces: extra.preferred || state.campus?.preferred || [] };
-  const others = pool.filter((peer) => peer.id !== person.id && peer.name);
-  return recommend(person, {
-    passed: extra.passed || [],
-    history: extra.history || [],
-    ask: extra.ask || null,
-    now: new Date(),
-    peers: isSupabaseConfigured ? others : undefined,
+let searchToken = 0;
+let matchWorker;
+let matchJob = 0;
+const matchWaiters = new Map();
+
+function matchWorkerOf() {
+  if (matchWorker) return matchWorker;
+  matchWorker = new Worker(new URL('./match.worker.js', import.meta.url), { type: 'module' });
+  matchWorker.onmessage = (event) => {
+    const job = matchWaiters.get(event.data?.id);
+    if (!job) return;
+    matchWaiters.delete(event.data.id);
+    if (event.data.error) job.reject(new Error(event.data.error));
+    else job.resolve(event.data.result || null);
+  };
+  matchWorker.onerror = () => {
+    for (const job of matchWaiters.values()) job.reject(new Error('match worker failed'));
+    matchWaiters.clear();
+    matchWorker = null;
+  };
+  return matchWorker;
+}
+
+function recommendOffThread(profile, options) {
+  const now = options.now ? new Date(options.now) : new Date();
+  const runHere = () => recommend(profile, { ...options, now });
+  if (typeof Worker === 'undefined') return Promise.resolve(runHere());
+  try {
+    const id = ++matchJob;
+    return new Promise((resolve, reject) => {
+      matchWaiters.set(id, { resolve, reject });
+      const message = {
+        id,
+        profile,
+        options: {
+          passed: options.passed || [],
+          history: options.history || [],
+          ask: options.ask || null,
+          now: now.toISOString(),
+          rarity: options.rarity || null,
+          census: options.census || null,
+        },
+      };
+      if (options.peers) message.options.peers = options.peers;
+      matchWorkerOf().postMessage(message);
+    });
+  } catch {
+    return Promise.resolve(runHere());
+  }
+}
+
+function bandsFor(profile, ask) {
+  if (ask?.start == null || ask?.end == null) return profile.availability?.bands || [];
+  return windowBands(ask.start, ask.end);
+}
+
+function searchDay(profile, ask) {
+  if (Number.isInteger(ask?.day)) return ask.day;
+  return nextOpenDay(profile, new Date());
+}
+
+function searchKey(profile, ask) {
+  const day = searchDay(profile, ask);
+  const bands = bandsFor(profile, ask).slice().sort().join(',');
+  const hobbies = (profile.hobbies || []).map((hobby) => hobbyId(hobby)).filter(Boolean).sort().join(',');
+  const plans = (profile.activities || []).map((item) => String(item).toLowerCase()).sort().join(',');
+  const sizes = searchSizes(profile);
+  const sizeKey = sizes ? sizes.join(',') : 'any';
+  return `${profile.id}|${day}|${bands}|${hobbies}|${plans}|${sizeKey}`;
+}
+
+function shortlistLimit(profile) {
+  const sizes = (searchSizes(profile) || []).filter((size) => size <= DOWNLOAD_CAP);
+  const wanted = sizes.length ? Math.max(...sizes) : 0;
+  if (!Number.isFinite(wanted) || wanted <= PAIR_POOL) return PAIR_POOL;
+  return wanted;
+}
+
+function passedPeople(passed) {
+  const ids = new Set();
+  for (const key of passed || []) {
+    for (const id of String(key).split('|')[0].split('.')) if (id) ids.add(id);
+  }
+  return ids;
+}
+
+function planQueryLabels(activities) {
+  const labels = new Set();
+  for (const item of activities || []) {
+    const text = String(item || '').trim();
+    if (!text) continue;
+    labels.add(text);
+    labels.add(text.toLowerCase());
+    labels.add(text.charAt(0).toUpperCase() + text.slice(1).toLowerCase());
+  }
+  return [...labels];
+}
+
+async function loadRarity() {
+  const [{ data: rows, error: rowError }, { data: stats, error: statsError }] = await Promise.all([
+    supabase.from('hobby_stats').select('id,seen'),
+    supabase.from('campus_stats').select('profiles').eq('id', 1).maybeSingle(),
+  ]);
+  if (rowError || statsError || !stats?.profiles) return null;
+  return {
+    total: stats.profiles,
+    counts: Object.fromEntries((rows || []).map((row) => [row.id, row.seen])),
+  };
+}
+
+async function fetchShortlist(profile, ask) {
+  const day = searchDay(profile, ask);
+  const bands = bandsFor(profile, ask);
+  if (day == null || !bands.length) return [];
+  const { data, error } = await supabase.rpc('match_candidates', {
+    match_day: day,
+    match_bands: bands,
+    hobby_labels: hobbyQueryLabels(profile.hobbies || []),
+    plan_labels: planQueryLabels(profile.activities || []),
+    lim: shortlistLimit(profile),
+  });
+  if (error) return null;
+  return (data || []).filter((row) => row.name && row.id !== profile.id).map(rowToPerson);
+}
+
+function censusWindows(profile, ask) {
+  if (ask?.start != null && ask?.end != null) return [{ key: 'ask', bands: windowBands(ask.start, ask.end) }];
+  return (profile.availability?.bands || []).map((band) => ({ key: band, bands: [band] }));
+}
+
+async function fetchCensus(profile, ask, sizes) {
+  const day = searchDay(profile, ask);
+  const windows = censusWindows(profile, ask).filter((window) => window.bands.length);
+  if (day == null || !windows.length || !sizes.length) return {};
+  const hobbyLabels = hobbyQueryLabels(profile.hobbies || []);
+  const planLabels = planQueryLabels(profile.activities || []);
+  const census = {};
+  await Promise.all(sizes.flatMap((size) => windows.map(async (window) => {
+    const { data, error } = await supabase.rpc('match_crowd', {
+      match_day: day,
+      match_bands: window.bands,
+      hobby_labels: hobbyLabels,
+      plan_labels: planLabels,
+      wanted: size,
+    });
+    if (!census[size]) census[size] = {};
+    if (error || !data) {
+      census[size][window.key] = null;
+      return;
+    }
+    const sample = Array.isArray(data.sample) ? data.sample : [];
+    census[size][window.key] = {
+      count: Number(data.count) || 0,
+      sample: sample.filter((row) => row?.name && row.id !== profile.id).map(rowToPerson),
+    };
+  })));
+  return census;
+}
+
+async function peersForSearch(profile, ask) {
+  if (!isSupabaseConfigured) return undefined;
+  const key = searchKey(profile, ask);
+  if (shortlistKey === key) return shortlist;
+  const sizes = searchSizes(profile);
+  const countable = (sizes || []).filter((size) => size > DOWNLOAD_CAP);
+  const listed = !sizes || sizes.some((size) => size <= DOWNLOAD_CAP);
+  const needRarity = !rarity;
+  const [loaded, rows, census] = await Promise.all([
+    needRarity ? loadRarity() : null,
+    listed ? fetchShortlist(profile, ask) : [],
+    countable.length ? fetchCensus(profile, ask, countable) : null,
+  ]);
+  if (needRarity && loaded) rarity = loaded;
+  if (rows == null) {
+    await loadPool();
+    shortlist = census ? { peers: pool, census } : pool;
+    shortlistKey = key;
+    return shortlist;
+  }
+  shortlist = census ? { peers: rows, census } : rows;
+  shortlistKey = key;
+  return shortlist;
+}
+
+function resolvedHobbyIds(profile) {
+  return [...new Set((profile?.hobbies || []).map((hobby) => hobbyId(hobby)).filter(Boolean))];
+}
+
+async function syncHobbyCounts(previous, next, { joining = false, leaving = false } = {}) {
+  if (!isSupabaseConfigured) return;
+  const { error } = await supabase.rpc('sync_hobby_counts', {
+    new_ids: leaving ? [] : resolvedHobbyIds(next),
+    joining,
+    leaving,
+  });
+  if (error) return;
+  rarity = null;
+  shortlistKey = '';
+}
+
+function requestRecommendation(profile, extra, patch) {
+  if (!profile) return;
+  const token = ++searchToken;
+  const next = { ...state, ...patch, searching: true };
+  emit(next);
+  const person = { ...profile, preferredPlaces: extra.preferred || next.campus?.preferred || [] };
+  const ask = extra.ask || null;
+  const passed = extra.passed || [];
+  peersForSearch(person, ask).then((others) => {
+    if (token !== searchToken) return null;
+    const skipped = passedPeople(passed);
+    const packed = Array.isArray(others) || others == null ? { peers: others, census: null } : others;
+    const peers = packed.peers ? packed.peers.filter((peer) => peer.id !== person.id && !skipped.has(peer.id)) : undefined;
+    return recommendOffThread(person, {
+      passed,
+      history: extra.history || [],
+      ask,
+      now: new Date().toISOString(),
+      peers,
+      rarity,
+      census: packed.census,
+    });
+  }).then((recommendation) => {
+    if (token !== searchToken) return;
+    emit({ ...state, recommendation, searching: false });
+  }).catch(() => {
+    if (token !== searchToken) return;
+    emit({ ...state, recommendation: null, searching: false });
   });
 }
 
@@ -348,57 +614,50 @@ export function preferPlace(id) {
   const preferred = current.includes(id) ? current.filter((item) => item !== id) : [...current, id];
   const zone = preferred.length ? placeById(preferred.at(-1)).zone : state.profile.zone;
   const profile = { ...state.profile, zone, preferredPlaces: preferred };
-  emit({
-    ...state,
+  const patch = {
     profile,
     campus: { conquered: state.campus?.conquered || [], preferred },
-    recommendation: state.plan ? state.recommendation : freshRecommendation(profile, {
-      passed: state.passed,
-      history: state.history,
-      ask: state.ask,
-      preferred,
-    }),
-  });
+  };
+  if (state.plan) {
+    emit({ ...state, ...patch });
+    return;
+  }
+  requestRecommendation(profile, {
+    passed: state.passed,
+    history: state.history,
+    ask: state.ask,
+    preferred,
+  }, patch);
 }
 
 export function saveProfile(profile) {
-  const ask = null;
-  const passed = [];
-  emit({
-    ...state,
-    profile,
-    ask,
-    passed,
-    recommendation: state.plan ? state.recommendation : freshRecommendation(profile, { passed, history: state.history, ask }),
-  });
+  const previous = state.profile;
+  const joining = !previous?.name && !!profile.name;
+  shortlistKey = '';
+  rarity = null;
+  const patch = { profile, ask: null, passed: [] };
+  const finish = () => {
+    if (state.plan) {
+      emit({ ...state, ...patch });
+      return;
+    }
+    requestRecommendation(profile, { passed: [], history: state.history, ask: null }, patch);
+  };
+  syncHobbyCounts(previous, profile, { joining }).finally(finish);
 }
 
 export function askForPlan(ask) {
-  emit({
-    ...state,
-    ask,
-    passed: [],
-    recommendation: freshRecommendation(state.profile, { passed: [], history: state.history, ask }),
-  });
+  requestRecommendation(state.profile, { passed: [], history: state.history, ask }, { ask, passed: [] });
 }
 
 export function clearAsk() {
-  emit({
-    ...state,
-    ask: null,
-    passed: [],
-    recommendation: freshRecommendation(state.profile, { passed: [], history: state.history, ask: null }),
-  });
+  requestRecommendation(state.profile, { passed: [], history: state.history, ask: null }, { ask: null, passed: [] });
 }
 
 export function passRecommendation() {
-  if (!state.recommendation) return;
+  if (!state.recommendation || state.searching || state.recommendation.roster === 'count') return;
   const passed = [...state.passed, state.recommendation.key];
-  emit({
-    ...state,
-    passed,
-    recommendation: freshRecommendation(state.profile, { passed, history: state.history, ask: state.ask }),
-  });
+  requestRecommendation(state.profile, { passed, history: state.history, ask: state.ask }, { passed });
 }
 
 export function acceptRecommendation() {
@@ -418,12 +677,7 @@ export function acceptRecommendation() {
 export function cancelPlan() {
   const plan = state.plan;
   const passed = plan ? [...state.passed, plan.key] : state.passed;
-  emit({
-    ...state,
-    plan: null,
-    passed,
-    recommendation: freshRecommendation(state.profile, { passed, history: state.history, ask: state.ask }),
-  });
+  requestRecommendation(state.profile, { passed, history: state.history, ask: state.ask }, { plan: null, passed });
 }
 
 export function markHere() {
@@ -492,8 +746,8 @@ export function completePlan() {
     at: new Date().toISOString(),
   }];
 
-  emit({
-    ...state,
+  const passed = state.passed;
+  requestRecommendation(profile, { passed, history, ask: null }, {
     profile,
     rewards,
     history,
@@ -505,7 +759,6 @@ export function completePlan() {
       title: plan.title,
       people: plan.peers.map((p) => p.name.split(' ')[0]),
     },
-    recommendation: freshRecommendation(profile, { passed: state.passed, history, ask: null }),
     ask: null,
     passed: [],
   });
@@ -525,7 +778,9 @@ export function dismissReward() {
 }
 
 export async function resetAll() {
+  searchToken += 1;
   if (isSupabaseConfigured && state.userId) {
+    await syncHobbyCounts(state.profile, null, { leaving: true });
     await supabase.from('private_state').delete().eq('id', state.userId);
     await supabase.from('profiles').delete().eq('id', state.userId);
     await supabase.auth.signOut();

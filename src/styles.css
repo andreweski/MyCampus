@@ -12,14 +12,6 @@ body {
   margin: 0;
   min-height: 100dvh;
   background-color: #2458a8;
-  background-image: url("/campus.jpg?v=4");
-  background-image: image-set(
-    url("/campus.webp?v=4") type("image/webp"),
-    url("/campus.jpg?v=4") type("image/jpeg")
-  );
-  background-position: center;
-  background-size: cover;
-  background-repeat: no-repeat;
 }
 body::before {
   content: "";
@@ -30,21 +22,21 @@ body::before {
     linear-gradient(165deg, rgba(220, 132, 62, 0.22), rgba(120, 52, 22, 0.16));
   mix-blend-mode: normal;
   pointer-events: none;
-  z-index: 0;
+  z-index: 1;
 }
 body::after {
   content: "";
   position: fixed;
   inset: 0;
   pointer-events: none;
-  z-index: 0;
+  z-index: 1;
   opacity: 0.28;
   mix-blend-mode: soft-light;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 button, input, textarea { font: inherit; }
 button { cursor: pointer; }
-#root { position: relative; z-index: 1; }
+#root { position: relative; z-index: 2; }
 
 h1 {
   font-family: Fraunces, Georgia, serif;

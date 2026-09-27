@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { formatRange } from './match.js';
+import { PREVIEW_COUNT, formatRange } from './match.js';
 import { formatAskDate, parseAsk, readActivity } from './parse.js';
 import { askForPlan, clearAsk, passRecommendation, acceptRecommendation } from './store.js';
 import { Avatar, CampusMap } from './ui.jsx';
@@ -100,7 +100,13 @@ export function Today({ state, onOpenPlan }) {
         </button>
       )}
 
-      {!plan && rec && (
+      {!plan && state.searching && (
+        <article className="invite empty">
+          <h1>Finding a plan.</h1>
+        </article>
+      )}
+
+      {!plan && !state.searching && rec && (
         <article className="invite">
           <p className="kicker">{rec.dayLabel} · {formatRange(rec.start, rec.end)}</p>
           <h1>{rec.title}</h1>
@@ -108,7 +114,7 @@ export function Today({ state, onOpenPlan }) {
           <p className="line">{rec.line}</p>
           <p className="why">{rec.why}</p>
           <ul className="people">
-            {rec.peers.map((peer) => (
+            {(rec.roster === 'preview' || rec.roster === 'count' ? rec.peers.slice(0, PREVIEW_COUNT) : rec.peers).map((peer) => (
               <li key={peer.id}>
                 <Avatar person={peer} />
                 <div>
@@ -119,19 +125,22 @@ export function Today({ state, onOpenPlan }) {
               </li>
             ))}
           </ul>
+          {(rec.roster === 'preview' || rec.roster === 'count') && rec.crowdCount - 1 > Math.min(rec.peers.length, PREVIEW_COUNT) && (
+            <p className="whisper">And {(rec.crowdCount - 1 - Math.min(rec.peers.length, PREVIEW_COUNT)).toLocaleString('en-US')} more people are in this plan.</p>
+          )}
           <div className="actions">
             <button type="button" className="solid accent" onClick={acceptRecommendation}>Accept</button>
-            <button type="button" className="ghost" onClick={passRecommendation}>Not this one</button>
+            {rec.roster !== 'count' && <button type="button" className="ghost" onClick={passRecommendation}>Not this one</button>}
           </div>
           <CampusMap activeId={rec.place.id} userZone={profile.zone} />
         </article>
       )}
 
-      {!plan && !rec && (
+      {!plan && !state.searching && !rec && (
         <article className="invite empty">
           <h1>No strong fit in that window.</h1>
-          <p className="lede">Nobody free in that window shares a hobby with you. Try another time, or add the hours you are usually around.</p>
-          {ask && <button type="button" className="ghost" onClick={clearAsk}>Use my usual hours</button>}
+          <p className="lede">No plan fits that window. Try another time, or add the hours you are usually around.</p>
+          {ask && <button type="button" className="ghost" onClick={() => { setNote(''); clearAsk(); }}>Use my usual hours</button>}
         </article>
       )}
 
