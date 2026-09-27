@@ -38,7 +38,7 @@ A size of 4 or less is exact. Above 4 it rounds to the nearest multiple of 5. Se
 - A common hobby on a busy day is the slow case, because the rarity sort walks everyone who matched. A rare hobby stays a small lookup.
 - If the shortlist call fails, the backup reads every named profile.
 
-## What a student can type
+## Edge Cases: what a student can type
 
 - **“Friday at 2.”** The coming Friday, 2:00–3:15, with a small group who share a hobby.
 - **“This Friday” on a Saturday.** The coming Friday, not the Friday that just passed.
