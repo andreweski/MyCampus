@@ -29,6 +29,8 @@ How many people come back depends on the group size:
 
 Shared schedule carries the most weight, then hobbies, then how well the activity fits the request. Major is a small factor. An optional bio is a smaller nudge when the words overlap. A blank bio leaves the ranking unchanged. The sentence parser is a phrase list in `src/parse.js` and `src/data.js`.
 
+Input examples, latency, and the approximate bio index are in [NOTES.md](NOTES.md).
+
 ## Stack
 
 - React 18 and Vite 6
