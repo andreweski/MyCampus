@@ -8,6 +8,8 @@
 }
 
 * { box-sizing: border-box; }
+html { scrollbar-width: none; }
+html::-webkit-scrollbar { display: none; width: 0; height: 0; }
 body {
   margin: 0;
   min-height: 100dvh;
@@ -134,7 +136,8 @@ textarea { resize: vertical; }
 .invite .kicker { color: #6d6d6d; }
 .invite .place { color: var(--accent); }
 .map-frame { margin: 0.8rem 0 0; }
-.campus { width: 100%; height: 280px; border: 0; border-radius: 18px; display: block; background: #dbe7f5; }
+.map-clip { height: 280px; overflow: hidden; border-radius: 18px; }
+.campus { width: calc(100% + 18px); height: 300px; border: 0; display: block; background: #dbe7f5; }
 .map-frame figcaption { display: grid; gap: 0.2rem; margin-top: 0.45rem; font-size: 0.9rem; }
 .map-frame a { color: white; }
 .invite .map-frame a, .invite .map-frame span { color: #1d4e9e; }

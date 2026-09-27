@@ -34,7 +34,9 @@ export function CampusMap({ activeId, userZone }) {
   const zone = ZONES.find((z) => z.id === userZone)?.label;
   return (
     <figure className="map-frame">
-      <iframe className="campus" title={`Google Maps: ${active.name}`} src={src} loading="lazy" referrerPolicy="no-referrer-when-downgrade" />
+      <div className="map-clip">
+        <iframe className="campus" title={`Google Maps: ${active.name}`} src={src} loading="lazy" scrolling="no" referrerPolicy="no-referrer-when-downgrade" />
+      </div>
       <figcaption>
         <a href={open} target="_blank" rel="noreferrer">Open {active.name} in Google Maps</a>
         {zone && <span>You usually are near the {zone}</span>}
