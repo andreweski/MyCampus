@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { campusFor, hobbyLabel, placeById, userPlaces } from './data.js';
-import { ALL_BADGES, addCustomPlace, badgeMeta, getState, logOut, preferPlace, previewDemoInvite, resetAll, saveProfile } from './store.js';
+import { ALL_BADGES, addCustomPlace, badgeMeta, getState, logOut, preferPlace, resetAll, saveProfile } from './store.js';
 import { Avatar, CampusMap, effectFor } from './ui.jsx';
 import { Onboarding } from './Onboarding.jsx';
 
@@ -190,7 +190,6 @@ export function Profile({ state }) {
       <p className="whisper">Signed in as {state.accountEmail}</p>
       <div className="profile-actions">
         <button type="button" className="ghost" onClick={() => setEditing(true)}>Edit preferences</button>
-        <button type="button" className="ghost" onClick={() => { previewDemoInvite(); }}>Preview incoming invite</button>
         <button type="button" className="texty" onClick={logOut}>Log out</button>
         <button type="button" className="texty" onClick={resetAll}>Delete this account</button>
       </div>

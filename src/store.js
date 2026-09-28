@@ -1041,53 +1041,6 @@ export async function declineInvite() {
   }
 }
 
-/** Local-only: pretend Jordan Kim invited you, so you can try Accept / Decline without a second account. */
-export function previewDemoInvite() {
-  if (!state.profile || state.plan) return;
-  const peer = PEERS.find((item) => item.id === 'jordan') || PEERS[0];
-  const place = userPlaces(state.profile.school, state.profile)[0] || null;
-  const day = nextOpenDay(state.profile, new Date()) ?? new Date().getDay();
-  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
-  const peerId = DEMO_ID_BY_SLUG[peer.id] || peer.id;
-  emit({
-    ...state,
-    recommendation: null,
-    invite: {
-      id: `demo-invite-${Date.now()}`,
-      meetupId: null,
-      key: `demo-invite-${Date.now()}`,
-      title: 'Coffee',
-      line: 'A short meetup near campus.',
-      activityId: 'coffee',
-      place,
-      start: 14 * 60,
-      end: 15 * 60,
-      day,
-      dayLabel: dayNames[day] || 'Today',
-      school: state.profile.school,
-      roster: 'names',
-      crowdCount: 2,
-      why: '',
-      status: 'open',
-      hostId: peerId,
-      role: 'guest',
-      memberStatus: 'invited',
-      userHere: false,
-      peers: [{
-        id: peerId,
-        name: peer.name,
-        major: peer.major || '',
-        status: 'invited',
-        role: 'guest',
-        here: false,
-        because: peer.vibe || 'Free in the same window',
-        synthetic: true,
-        demo: true,
-      }],
-    },
-  });
-}
-
 export async function cancelPlan() {
   const plan = state.plan;
   if (!plan) return;
