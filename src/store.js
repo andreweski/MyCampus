@@ -1,5 +1,12 @@
-import { PLACES, hobbyId, hobbyQueryLabels, placeById } from './data.js';
+import {
+  campusById, campusForEmail, customPlacesFrom, hobbyId, hobbyQueryLabels, placeById, placeOrderFrom,
+  PEERS, rememberCampus, schoolIdFromEmail, userPlaces,
+} from './data.js';
 import { DOWNLOAD_CAP, PAIR_POOL, nextOpenDay, recommend, searchSizes, windowBands } from './match.js';
+import {
+  cancelMeetup, completeMeetup, createMeetup, fetchInviteFor, fetchMeetup, updateMemberStatus,
+} from './meetup.js';
+import { isDemoAccount, isDemoPeerId, isLiveUserId, DEMO_ID_BY_SLUG } from './privacy.js';
 import { isSupabaseConfigured, supabase } from './supabase.js';
 
 const KEY = 'mycampus.v1';
@@ -14,10 +21,15 @@ const empty = {
   rewards: { xp: 0, streak: 0, lastDay: null, badges: [], people: [] },
   recommendation: null,
   plan: null,
+  invite: null,
   justRewarded: null,
   ask: null,
   signupConfirmed: true,
   campus: { conquered: [], preferred: [] },
+  school: null,
+  campusCatalog: null,
+  campusLoading: false,
+  campusMissing: false,
   searching: false,
 };
 
@@ -43,6 +55,7 @@ function rowToPerson(row) {
     groupSizes: Array.isArray(row.availability?.groupSizes) ? row.availability.groupSizes : null,
     bio: row.availability?.bio || '',
     zone: row.zone || 'union',
+    school: row.school || null,
     availability: row.availability || { days: [], bands: [] },
     vibe: 'On campus',
   };
@@ -53,7 +66,7 @@ async function loadPool() {
     pool = [];
     return;
   }
-  const { data } = await supabase.from('profiles').select('id,name,major,hobbies,activities,energy,setting,group_size,zone,availability').not('name', 'is', null);
+  const { data } = await supabase.from('profiles').select('id,name,major,hobbies,activities,energy,setting,group_size,zone,school,availability').not('name', 'is', null);
   pool = (data || []).filter((row) => row.name).map(rowToPerson);
 }
 
@@ -83,6 +96,7 @@ function profileRow(next) {
     setting: profile.setting || 'either',
     group_size: storedGroupSize(profile),
     zone: profile.zone || 'union',
+    school: profile.school || null,
     availability: {
       ...(profile.availability || { days: [], bands: [] }),
       groupFlex: profile.groupFlex || 'sizes',
@@ -201,10 +215,77 @@ function emit(next) {
   listeners.forEach((fn) => fn());
 }
 
+async function loadCachedCampus(id) {
+  if (!isSupabaseConfigured || !id) return null;
+  const { data } = await supabase.from('campuses').select('*').eq('id', id).maybeSingle();
+  if (!data?.places?.length) return null;
+  return rememberCampus({
+    id: data.id,
+    name: data.name,
+    domains: data.domains || [data.id],
+    defaultZone: data.default_zone || data.places[0]?.zone || 'main',
+    zones: data.zones || [],
+    near: data.near || {},
+    places: data.places,
+    activities: data.activities || [],
+    lat: data.lat,
+    lng: data.lng,
+    source: data.source || 'cache',
+  });
+}
+
+async function saveCampusCache(campus) {
+  if (!isSupabaseConfigured || !campus?.id || !campus.places?.length) return;
+  await supabase.from('campuses').upsert({
+    id: campus.id,
+    name: campus.name,
+    domains: campus.domains || [campus.id],
+    default_zone: campus.defaultZone || campus.places[0]?.zone || 'main',
+    zones: campus.zones || [],
+    near: campus.near || {},
+    places: campus.places,
+    activities: campus.activities || [],
+    lat: campus.lat ?? null,
+    lng: campus.lng ?? null,
+    source: campus.source || 'geoapify',
+    updated_at: new Date().toISOString(),
+  });
+}
+
+export async function ensureCampusCatalog(schoolId, options = {}) {
+  const id = schoolId || state.school;
+  const name = String(options.name || '').trim();
+  if (!id) return null;
+  const known = campusById(id);
+  if (known?.places?.length && known.source === 'geoapify' && (!name || known.name === name)) {
+    emit({ ...state, school: id, campusCatalog: known, campusLoading: false, campusMissing: false });
+    return known;
+  }
+  emit({ ...state, school: id, campusLoading: true, campusMissing: false });
+  let campus = (!name || known?.name === name) ? await loadCachedCampus(id) : null;
+  if (campus && campus.source !== 'geoapify') campus = null;
+  if (!campus?.places?.length) {
+    const query = new URLSearchParams({ domain: id });
+    if (name) query.set('name', name);
+    const response = await fetch(`/api/campus?${query}`);
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok || !payload.campus) {
+      emit({ ...state, school: id, campusLoading: false, campusMissing: true, campusCatalog: null });
+      return null;
+    }
+    campus = rememberCampus(payload.campus);
+    await saveCampusCache(campus);
+  }
+  emit({ ...state, school: id, campusCatalog: campus, campusLoading: false, campusMissing: false });
+  return campus;
+}
+
 async function hydrate(user) {
   const { data: profile } = await supabase.from('profiles').select('*').eq('id', user.id).maybeSingle();
   const { data: priv } = await supabase.from('private_state').select('*').eq('id', user.id).maybeSingle();
-  const person = profile?.name ? rowToPerson(profile) : null;
+  const suggested = schoolIdFromEmail(user.email);
+  const school = profile?.school || suggested || null;
+  const person = profile?.name ? rowToPerson({ ...profile, school: profile.school || school }) : null;
   const rawRewards = priv?.rewards || {};
   const passed = priv?.passed || [];
   const history = priv?.history || [];
@@ -219,6 +300,8 @@ async function hydrate(user) {
     history,
     rewards: rewardsOf(rawRewards),
     campus,
+    school: person?.school || suggested,
+    campusMissing: false,
     recommendation: priv?.recommendation || null,
     plan: priv?.plan || null,
     ask,
@@ -227,7 +310,13 @@ async function hydrate(user) {
   };
   rememberPersist(next);
   emit(next);
-  if (person && !priv?.recommendation && !priv?.plan) {
+  shortlistKey = '';
+  shortlist = null;
+  if (person?.school) await ensureCampusCatalog(person.school);
+  startMeetupPoll();
+  await refreshMeetupState();
+  const current = getState();
+  if (person && !current.plan && !current.invite && !current.recommendation) {
     requestRecommendation(person, { passed, history, ask, preferred: campus.preferred }, {});
   }
 }
@@ -244,10 +333,12 @@ export async function signUpWithSupabase(email, password) {
   if (!/^[^\s@]+@[^\s@]+\.edu$/i.test(address)) {
     return { ok: false, error: 'Use a school email that ends in .edu.' };
   }
+  const campus = campusForEmail(address);
+  if (!campus?.id) return { ok: false, error: 'Use a school email that ends in .edu.' };
   const { data, error } = await supabase.auth.signUp({ email: address, password });
   if (error) return { ok: false, error: error.message };
   if (!data.session) return { ok: true, pending: true };
-  await supabase.from('profiles').upsert({ id: data.user.id });
+  await supabase.from('profiles').upsert({ id: data.user.id, school: campus.id });
   await supabase.from('private_state').upsert({ id: data.user.id, signup_confirmed: false });
   await hydrate(data.user);
   return { ok: true };
@@ -313,11 +404,14 @@ export function signUp(email, passwordHash) {
   if (!/^[^\s@]+@[^\s@]+\.edu$/i.test(key)) {
     return { ok: false, error: 'Use a school email that ends in .edu.' };
   }
+  const campus = campusForEmail(key);
+  if (!campus?.id) return { ok: false, error: 'Use a school email that ends in .edu.' };
   const all = readAccounts();
   if (all[key]) return { ok: false, error: 'That email already has an account. Log in instead.' };
-  all[key] = { email: key, passwordHash, profile: null };
+  all[key] = { email: key, passwordHash, profile: null, school: campus.id };
   localStorage.setItem(ACCOUNTS, JSON.stringify(all));
-  emit({ ...structuredClone(empty), accountEmail: key });
+  emit({ ...structuredClone(empty), accountEmail: key, school: campus.id });
+  void ensureCampusCatalog(campus.id);
   return { ok: true };
 }
 
@@ -327,10 +421,16 @@ export function logIn(email, passwordHash) {
   if (!account || account.passwordHash !== passwordHash) {
     return { ok: false, error: 'Email or password does not match.' };
   }
+  const school = schoolIdFromEmail(key) || account.school || account.profile?.school || null;
+  if (!school) {
+    emit({ ...structuredClone(empty), accountEmail: key, campusMissing: true });
+    return { ok: true };
+  }
   emit({
     ...structuredClone(empty),
     accountEmail: key,
-    profile: account.profile || null,
+    school,
+    profile: account.profile ? { ...account.profile, school } : null,
     passed: account.passed || [],
     history: account.history || [],
     rewards: rewardsOf(account.rewards),
@@ -339,11 +439,13 @@ export function logIn(email, passwordHash) {
     plan: account.plan || null,
     ask: account.ask || null,
   });
+  void ensureCampusCatalog(school);
   return { ok: true };
 }
 
 export async function logOut() {
   searchToken += 1;
+  stopMeetupPoll();
   if (isSupabaseConfigured) await supabase.auth.signOut();
   emit(structuredClone(empty));
 }
@@ -392,6 +494,14 @@ function recommendOffThread(profile, options) {
     const id = ++matchJob;
     return new Promise((resolve, reject) => {
       matchWaiters.set(id, { resolve, reject });
+      const want = profile?.school;
+      const catalog = options.campus?.id === want
+        ? options.campus
+        : (state.campusCatalog?.id === want ? state.campusCatalog : null)
+          || campusById(want)
+          || options.campus
+          || state.campusCatalog
+          || null;
       const message = {
         id,
         profile,
@@ -402,6 +512,7 @@ function recommendOffThread(profile, options) {
           now: now.toISOString(),
           rarity: options.rarity || null,
           census: options.census || null,
+          campus: catalog,
         },
       };
       if (options.peers) message.options.peers = options.peers;
@@ -520,7 +631,31 @@ async function fetchCensus(profile, ask, sizes) {
   return census;
 }
 
+function demoPeerPool(profile) {
+  return PEERS.map((peer) => ({
+    ...peer,
+    id: DEMO_ID_BY_SLUG[peer.id] || peer.id,
+    school: peer.school || profile.school || null,
+    groupFlex: 'any',
+    groupSize: 0,
+    groupSizes: [],
+    demo: true,
+  }));
+}
+
+function withoutDemoPeers(list) {
+  return (list || []).filter((peer) => !isDemoPeerId(peer.id));
+}
+
 async function peersForSearch(profile, ask) {
+  // Demo login only meets seed classmates. Same recommend() path, separate pool.
+  if (isDemoAccount(state.accountEmail)) {
+    const peers = demoPeerPool(profile);
+    shortlist = peers;
+    shortlistKey = searchKey(profile, ask);
+    return shortlist;
+  }
+
   if (!isSupabaseConfigured) return undefined;
   const key = searchKey(profile, ask);
   if (shortlistKey === key) return shortlist;
@@ -534,15 +669,26 @@ async function peersForSearch(profile, ask) {
     countable.length ? fetchCensus(profile, ask, countable) : null,
   ]);
   if (needRarity && loaded) rarity = loaded;
+  let peers;
   if (rows == null) {
     await loadPool();
-    shortlist = census ? { peers: pool, census } : pool;
-    shortlistKey = key;
-    return shortlist;
+    peers = withoutDemoPeers(keepCampus(profile, pool));
+  } else {
+    peers = withoutDemoPeers(keepCampus(profile, rows));
   }
-  shortlist = census ? { peers: rows, census } : rows;
+  // Empty campus: fall back to demo classmates so matching still runs.
+  if (!peers.length) peers = demoPeerPool(profile);
+  shortlist = census ? { peers, census } : peers;
   shortlistKey = key;
   return shortlist;
+}
+
+function keepCampus(person, list) {
+  if (!person?.school || !Array.isArray(list)) return list;
+  const same = list.filter((peer) => peer.school === person.school);
+  if (same.length) return same;
+  // Older profiles may not have school set yet; keep them instead of emptying the pool.
+  return list.filter((peer) => !peer.school);
 }
 
 function resolvedHobbyIds(profile) {
@@ -592,27 +738,33 @@ function requestRecommendation(profile, extra, patch) {
   });
 }
 
+function profileExtras(profile) {
+  return customPlacesFrom(profile);
+}
+
 export function visibleCampus(profile, campus) {
   const saved = campus?.conquered || [];
   const conquered = saved.length
     ? [...saved]
-    : PLACES.filter((place) => place.zone === profile?.zone).map((place) => place.id);
+    : userPlaces(profile?.school, profile).filter((place) => place.zone === profile?.zone).map((place) => place.id);
   return { conquered, preferred: campus?.preferred || [] };
 }
 
 export function claimPlace(id) {
-  if (!placeById(id) || !state.profile) return;
+  if (!placeById(id, state.profile?.school, profileExtras(state.profile)) || !state.profile) return;
   const { conquered, preferred } = visibleCampus(state.profile, state.campus);
   if (!conquered.includes(id)) conquered.push(id);
   emit({ ...state, campus: { conquered, preferred } });
 }
 
 export function preferPlace(id) {
-  const place = placeById(id);
+  const extras = profileExtras(state.profile);
+  const place = placeById(id, state.profile?.school, extras);
   if (!place || !state.profile) return;
   const current = state.campus?.preferred || [];
   const preferred = current.includes(id) ? current.filter((item) => item !== id) : [...current, id];
-  const zone = preferred.length ? placeById(preferred.at(-1)).zone : state.profile.zone;
+  const last = preferred.length ? placeById(preferred.at(-1), state.profile.school, extras) : null;
+  const zone = last?.zone || state.profile.zone;
   const profile = { ...state.profile, zone, preferredPlaces: preferred };
   const patch = {
     profile,
@@ -630,12 +782,33 @@ export function preferPlace(id) {
   }, patch);
 }
 
+export function addCustomPlace(place) {
+  if (!place?.id || !place?.name || !state.profile) return null;
+  const school = state.profile.school;
+  const extras = customPlacesFrom(state.profile);
+  if (placeById(place.id, school, extras)) return place;
+  const customPlaces = [...extras, place];
+  const currentOrder = placeOrderFrom(state.profile);
+  const knownIds = userPlaces(school, state.profile).map((item) => item.id);
+  const placeOrder = [...(currentOrder.length ? currentOrder : knownIds), place.id];
+  const availability = {
+    ...(state.profile.availability || {}),
+    customPlaces,
+    placeOrder,
+  };
+  const profile = { ...state.profile, availability };
+  emit({ ...state, profile });
+  return place;
+}
+
 export function saveProfile(profile) {
   const previous = state.profile;
   const joining = !previous?.name && !!profile.name;
+  const school = profile.school || state.school || campusForEmail(state.accountEmail)?.id || null;
+  profile = { ...profile, school };
   shortlistKey = '';
   rarity = null;
-  const patch = { profile, ask: null, passed: [] };
+  const patch = { profile, school, ask: null, passed: [] };
   const finish = () => {
     if (state.plan) {
       emit({ ...state, ...patch });
@@ -643,7 +816,10 @@ export function saveProfile(profile) {
     }
     requestRecommendation(profile, { passed: [], history: state.history, ask: null }, patch);
   };
-  syncHobbyCounts(previous, profile, { joining }).finally(finish);
+  const catalogReady = school && state.campusCatalog?.id !== school
+    ? ensureCampusCatalog(school, { name: profile.schoolName })
+    : Promise.resolve(state.campusCatalog);
+  Promise.all([syncHobbyCounts(previous, profile, { joining }), catalogReady]).finally(finish);
 }
 
 export function askForPlan(ask) {
@@ -660,38 +836,300 @@ export function passRecommendation() {
   requestRecommendation(state.profile, { passed, history: state.history, ask: state.ask }, { passed });
 }
 
-export function acceptRecommendation() {
+function isSyntheticPeer(peer) {
+  return Boolean(peer?.synthetic || peer?.demo || isDemoPeerId(peer?.id) || (peer?.id && !isLiveUserId(peer.id)));
+}
+
+/** Demo classmates cannot log in — simulate their accepts so the demo can move. */
+function scheduleDemoAccepts(planRef) {
+  const id = planRef.meetupId || planRef.id;
+  const pending = (planRef.peers || []).filter((peer) => (
+    isSyntheticPeer(peer) && peer.status !== 'accepted' && peer.status !== 'declined'
+  ));
+  pending.forEach((peer, index) => {
+    setTimeout(() => {
+      const current = state.plan;
+      if (!current) return;
+      if ((current.meetupId || current.id) !== id) return;
+      const still = current.peers.find((item) => item.id === peer.id);
+      if (!still || still.status === 'accepted' || still.status === 'declined') return;
+      emit({
+        ...state,
+        plan: {
+          ...current,
+          peers: current.peers.map((item) => (
+            item.id === peer.id
+              ? {
+                  ...item,
+                  status: 'accepted',
+                  synthetic: true,
+                  name: item.name || peer.name || '',
+                  major: item.major || peer.major || '',
+                }
+              : item
+          )),
+        },
+      });
+    }, 800 + index * 650);
+  });
+}
+
+export function retryDemoAccepts() {
+  if (!state.plan) return;
+  scheduleDemoAccepts(state.plan);
+}
+
+let meetupPoll = null;
+
+function stopMeetupPoll() {
+  if (meetupPoll) clearInterval(meetupPoll);
+  meetupPoll = null;
+}
+
+function startMeetupPoll() {
+  stopMeetupPoll();
+  if (!isSupabaseConfigured || !state.userId) return;
+  meetupPoll = setInterval(() => {
+    void refreshMeetupState();
+  }, 4000);
+}
+
+export async function refreshMeetupState() {
+  if (!state.userId) return;
+  if (state.plan?.meetupId) {
+    const latest = await fetchMeetup(state.plan.meetupId, state.userId);
+    if (!latest || latest.status === 'cancelled') {
+      if (state.plan) {
+        const passed = [...state.passed, state.plan.key];
+        requestRecommendation(state.profile, { passed, history: state.history, ask: state.ask }, {
+          plan: null,
+          invite: null,
+          passed,
+        });
+      }
+      return;
+    }
+    const priorPeers = state.plan.peers || [];
+    const livePeers = latest.peers.map((peer) => {
+      const prior = priorPeers.find((item) => item.id === peer.id);
+      // Keep a local demo accept until the row catches up (or if the guest never writes back).
+      const accepted = peer.status === 'accepted'
+        || (peer.status !== 'declined' && prior?.status === 'accepted');
+      return {
+        ...peer,
+        status: peer.status === 'declined' ? 'declined' : (accepted ? 'accepted' : peer.status),
+        name: accepted ? (peer.name || prior?.name || '') : (prior?.name || peer.name || ''),
+        major: peer.major || prior?.major || '',
+        because: prior?.because || peer.because || '',
+        synthetic: false,
+      };
+    });
+    const liveIds = new Set(livePeers.map((peer) => peer.id));
+    // Keep seed classmates that never land in meetup_members.
+    const syntheticPeers = priorPeers
+      .filter((peer) => isSyntheticPeer(peer) && !liveIds.has(peer.id))
+      .map((peer) => ({ ...peer, synthetic: true }));
+    const merged = {
+      ...latest,
+      peers: [...livePeers, ...syntheticPeers],
+    };
+    emit({ ...state, plan: merged, invite: null });
+    return;
+  }
+  if (!state.plan) {
+    const invite = await fetchInviteFor(state.userId);
+    if (invite?.meetupId !== state.invite?.meetupId) {
+      // Same card either way — drop a solo recommendation so you don't Accept twice.
+      emit({
+        ...state,
+        invite,
+        recommendation: invite ? null : state.recommendation,
+      });
+    } else if (!invite && state.invite) {
+      emit({ ...state, invite: null });
+    }
+  }
+}
+
+export async function acceptRecommendation() {
   const rec = state.recommendation;
-  if (!rec) return;
+  if (!rec || !state.profile) return;
+  try {
+    const created = await createMeetup({
+      hostId: state.userId || `local-${state.profile.id || 'host'}`,
+      hostProfile: state.profile,
+      rec,
+    });
+    const plan = created.plan;
+    emit({
+      ...state,
+      recommendation: null,
+      invite: null,
+      plan,
+    });
+    startMeetupPoll();
+    scheduleDemoAccepts(plan);
+  } catch (error) {
+    console.warn(error);
+    // Local fallback if the meetup tables are not applied yet.
+    const plan = {
+      ...rec,
+      id: `local-${Date.now()}`,
+      meetupId: null,
+      status: 'open',
+      hostId: state.userId,
+      role: 'host',
+      memberStatus: 'accepted',
+      userHere: false,
+      peers: (rec.peers || []).map((peer) => ({
+        id: peer.id,
+        name: peer.name,
+        major: peer.major || '',
+        status: 'invited',
+        role: 'guest',
+        here: false,
+        because: peer.because || '',
+        synthetic: !isLiveUserId(peer.id),
+      })),
+    };
+    emit({ ...state, recommendation: null, invite: null, plan });
+    scheduleDemoAccepts(plan);
+  }
+}
+
+export async function acceptInvite() {
+  const invite = state.invite;
+  if (!invite || !state.userId) return;
+  // Demo preview has no meetup row — just open the plan locally.
+  if (!invite.meetupId) {
+    const plan = {
+      ...invite,
+      id: invite.id || `local-${Date.now()}`,
+      memberStatus: 'accepted',
+      role: 'guest',
+      userHere: false,
+      peers: (invite.peers || []).map((peer) => ({
+        ...peer,
+        status: peer.synthetic || !isLiveUserId(peer.id) ? 'accepted' : peer.status,
+      })),
+    };
+    emit({ ...state, invite: null, recommendation: null, plan });
+    scheduleDemoAccepts(plan);
+    return;
+  }
+  await updateMemberStatus(invite.meetupId, state.userId, {
+    status: 'accepted',
+    name: state.profile?.name || '',
+    major: state.profile?.major || '',
+  });
+  const plan = await fetchMeetup(invite.meetupId, state.userId);
+  emit({ ...state, invite: null, recommendation: null, plan });
+  startMeetupPoll();
+}
+
+export async function declineInvite() {
+  const invite = state.invite;
+  if (!invite) return;
+  if (invite.meetupId && state.userId) {
+    await updateMemberStatus(invite.meetupId, state.userId, { status: 'declined' });
+  }
+  // Same as "Not this one" on a match — look for another plan.
+  const passed = invite.key ? [...state.passed, invite.key] : state.passed;
+  emit({ ...state, invite: null });
+  if (state.profile) {
+    requestRecommendation(state.profile, { passed, history: state.history, ask: state.ask }, { passed });
+  }
+}
+
+/** Local-only: pretend Jordan Kim invited you, so you can try Accept / Decline without a second account. */
+export function previewDemoInvite() {
+  if (!state.profile || state.plan) return;
+  const peer = PEERS.find((item) => item.id === 'jordan') || PEERS[0];
+  const place = userPlaces(state.profile.school, state.profile)[0] || null;
+  const day = nextOpenDay(state.profile, new Date()) ?? new Date().getDay();
+  const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+  const peerId = DEMO_ID_BY_SLUG[peer.id] || peer.id;
   emit({
     ...state,
     recommendation: null,
-    plan: {
-      ...rec,
+    invite: {
+      id: `demo-invite-${Date.now()}`,
+      meetupId: null,
+      key: `demo-invite-${Date.now()}`,
+      title: 'Coffee',
+      line: 'A short meetup near campus.',
+      activityId: 'coffee',
+      place,
+      start: 14 * 60,
+      end: 15 * 60,
+      day,
+      dayLabel: dayNames[day] || 'Today',
+      school: state.profile.school,
+      roster: 'names',
+      crowdCount: 2,
+      why: '',
+      status: 'open',
+      hostId: peerId,
+      role: 'guest',
+      memberStatus: 'invited',
       userHere: false,
-      peers: rec.peers.map((p) => ({ ...p, here: false })),
+      peers: [{
+        id: peerId,
+        name: peer.name,
+        major: peer.major || '',
+        status: 'invited',
+        role: 'guest',
+        here: false,
+        because: peer.vibe || 'Free in the same window',
+        synthetic: true,
+        demo: true,
+      }],
     },
   });
 }
 
-export function cancelPlan() {
+export async function cancelPlan() {
   const plan = state.plan;
+  if (!plan) return;
+  if (plan.meetupId && plan.role === 'host') {
+    await cancelMeetup(plan.meetupId, state.userId);
+  } else if (plan.meetupId && state.userId) {
+    await updateMemberStatus(plan.meetupId, state.userId, { status: 'declined' });
+  }
+  stopMeetupPoll();
   const passed = plan ? [...state.passed, plan.key] : state.passed;
-  requestRecommendation(state.profile, { passed, history: state.history, ask: state.ask }, { plan: null, passed });
+  requestRecommendation(state.profile, { passed, history: state.history, ask: state.ask }, {
+    plan: null,
+    invite: null,
+    passed,
+  });
 }
 
 export function markHere() {
   if (!state.plan || state.plan.userHere) return;
-  emit({ ...state, plan: { ...state.plan, userHere: true } });
+  const plan = { ...state.plan, userHere: true };
+  emit({ ...state, plan });
+  if (plan.meetupId && state.userId) {
+    void updateMemberStatus(plan.meetupId, state.userId, { here: true });
+  }
+  // Synthetic classmates can check in after you do.
+  const synth = (plan.peers || []).filter((peer) => peer.synthetic && peer.status === 'accepted' && !peer.here);
+  if (synth.length) {
+    setTimeout(() => {
+      if (!state.plan || state.plan.id !== plan.id) return;
+      markPeerHere(synth[0].id);
+    }, 1100);
+  }
 }
 
 export function markPeerHere(id) {
   if (!state.plan) return;
+  const peers = state.plan.peers.map((p) => (p.id === id ? { ...p, here: true, status: p.status === 'invited' ? 'accepted' : p.status } : p));
   emit({
     ...state,
     plan: {
       ...state.plan,
-      peers: state.plan.peers.map((p) => (p.id === id ? { ...p, here: true } : p)),
+      peers,
     },
   });
 }
@@ -711,6 +1149,8 @@ export function completePlan() {
   if (completing || !plan || plan.settled) return;
   if (!plan.userHere || !plan.peers.some((p) => p.here)) return;
   completing = true;
+  stopMeetupPoll();
+  if (plan.meetupId) void completeMeetup(plan.meetupId);
 
   const today = dayKey();
   const rewards = { ...state.rewards, badges: [...state.rewards.badges], people: [...state.rewards.people] };
@@ -746,18 +1186,24 @@ export function completePlan() {
     at: new Date().toISOString(),
   }];
 
+  const revealed = plan.peers
+    .filter((p) => p.status === 'accepted' || p.synthetic)
+    .map((p) => (p.name || '').split(' ')[0])
+    .filter(Boolean);
+
   const passed = state.passed;
   requestRecommendation(profile, { passed, history, ask: null }, {
     profile,
     rewards,
     history,
     plan: null,
+    invite: null,
     justRewarded: {
       xp: gained,
       streak: rewards.streak,
       badge: earned[0] || null,
       title: plan.title,
-      people: plan.peers.map((p) => p.name.split(' ')[0]),
+      people: revealed.length ? revealed : ['your group'],
     },
     ask: null,
     passed: [],
@@ -779,6 +1225,7 @@ export function dismissReward() {
 
 export async function resetAll() {
   searchToken += 1;
+  stopMeetupPoll();
   if (isSupabaseConfigured && state.userId) {
     await syncHobbyCounts(state.profile, null, { leaving: true });
     await supabase.from('private_state').delete().eq('id', state.userId);

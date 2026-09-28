@@ -14,27 +14,11 @@ export const BAND_LABELS = [
 
 export const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
-export const ZONES = [
-  { id: 'union', label: 'University Union' },
-  { id: 'library', label: 'Library' },
-  { id: 'quad', label: 'Main quad' },
-  { id: 'gym', label: 'Pioneer Gym' },
-  { id: 'science', label: 'Science North' },
-];
-
-const NEAR = {
-  union: ['quad', 'library'],
-  library: ['union', 'quad'],
-  quad: ['union', 'library', 'science'],
-  gym: ['quad'],
-  science: ['quad'],
-};
-
-export function zonesClose(a, b) {
-  if (!a || !b) return false;
-  if (a === b) return true;
-  return (NEAR[a] || []).includes(b);
-}
+export {
+  ACTIVITIES, PLACES, ZONES, activitiesFor, activityById, baseEduDomain, campusById, campusFor, campusForEmail,
+  customPlacesFrom, isSchoolEmail, movePlaceId, orderPlaces, placeById, placeOrderFrom, placesFor, rememberCampus,
+  schoolHint, schoolIdFromEmail, userPlaces, zonesClose, zonesFor,
+} from './campuses.js';
 
 export const INTERESTS = [
   'Fitness', 'Food', 'Walking', 'Coffee', 'Studying', 'Music', 'Games',
@@ -301,28 +285,6 @@ export function sharedLanguage(a, b) {
   return hits.slice(0, 2).map((h) => h.label);
 }
 
-export const PLACES = [
-  { id: 'union-lawn', name: 'Union Lawn', zone: 'union', outdoor: true, lat: 37.65715, lng: -122.0577, note: 'Tables under the trees by the Union' },
-  { id: 'union-cafe', name: 'Union cafe', zone: 'union', outdoor: false, lat: 37.6574, lng: -122.05755, note: 'The counter just inside the Union' },
-  { id: 'union-games', name: 'Union game room', zone: 'union', outdoor: false, lat: 37.65728, lng: -122.0574, note: 'A table in the back room' },
-  { id: 'library-steps', name: 'Library steps', zone: 'library', outdoor: true, lat: 37.65805, lng: -122.0584, note: 'The wide steps facing the quad' },
-  { id: 'pioneer-loop', name: 'Pioneer loop', zone: 'gym', outdoor: true, lat: 37.6558, lng: -122.0608, note: 'The path that circles Pioneer Gym' },
-  { id: 'pioneer-court', name: 'Pioneer Court B', zone: 'gym', outdoor: false, lat: 37.65555, lng: -122.0604, note: 'Half-court, just show up' },
-  { id: 'garden', name: 'Campus garden', zone: 'quad', outdoor: true, lat: 37.6567, lng: -122.0571, note: 'Benches off the main path' },
-  { id: 'science-court', name: 'Science North court', zone: 'science', outdoor: true, lat: 37.6584, lng: -122.0559, note: 'The courtyard between the labs' },
-];
-
-export const ACTIVITIES = [
-  { id: 'lunch-walk', title: 'Lunch + a short walk', intents: ['food', 'fitness', 'outdoors', 'social'], bands: ['lunch'], duration: 75, place: 'union-lawn', line: 'Eat somewhere easy, then walk it off. Nothing past that.' },
-  { id: 'coffee', title: 'Coffee, then see', intents: ['food', 'social', 'coffee'], bands: ['morning', 'afternoon'], duration: 60, place: 'union-cafe', line: 'One drink. Stay if the conversation is good.' },
-  { id: 'loop', title: 'Easy loop from the gym', intents: ['fitness', 'outdoors', 'walking', 'running'], bands: ['morning', 'afternoon'], duration: 50, place: 'pioneer-loop', line: 'A pace the whole group can hold.' },
-  { id: 'steps', title: 'Break on the library steps', intents: ['study', 'studying', 'social'], bands: ['lunch', 'afternoon'], duration: 45, place: 'library-steps', line: 'Forty-five minutes off the problem set.' },
-  { id: 'garden', title: 'Sit in the garden', intents: ['outdoors', 'social', 'creative', 'art'], bands: ['afternoon', 'evening'], duration: 60, place: 'garden', line: 'Low-key. Better if the group is quieter.' },
-  { id: 'games', title: 'One game at the Union', intents: ['social', 'games', 'creative'], bands: ['afternoon', 'evening'], duration: 80, place: 'union-games', line: 'A short game, then you leave.' },
-  { id: 'hoops', title: 'Short pickup run', intents: ['fitness', 'basketball', 'sports'], bands: ['afternoon', 'evening'], duration: 60, place: 'pioneer-court', line: 'Half-court. Rotate in, no team to join.' },
-  { id: 'science', title: 'Courtyard pause', intents: ['study', 'social', 'outdoors'], bands: ['lunch', 'afternoon'], duration: 40, place: 'science-court', line: 'Sun, ten minutes of talking, back to lab.' },
-];
-
 export const PEERS = [
   { id: 'jordan', name: 'Jordan Kim', major: 'Kinesiology', zone: 'gym', energy: 'high', setting: 'outdoors', interests: ['Fitness', 'Running', 'Food'], hobbies: ['Basketball', 'Coffee'], activities: ['Fitness', 'Food'], availability: { days: [1, 2, 3, 4, 5], bands: ['morning', 'lunch', 'afternoon'] }, vibe: 'Sweat, then food' },
   { id: 'priya', name: 'Priya Shah', major: 'Biology', zone: 'science', energy: 'calm', setting: 'either', interests: ['Food', 'Studying', 'Coffee'], hobbies: ['Games', 'Walking'], activities: ['Food', 'Studying'], availability: { days: [1, 2, 3, 4, 5], bands: ['lunch', 'afternoon'] }, vibe: 'Calm pace, good snacks' },
@@ -336,10 +298,3 @@ export const PEERS = [
   { id: 'chris', name: 'Chris Patel', major: 'Computer Science', zone: 'quad', energy: 'mixed', setting: 'outdoors', interests: ['Walking', 'Coffee', 'Career'], hobbies: ['Fitness', 'Music'], activities: ['Outdoors', 'Food'], availability: { days: [1, 2, 4, 5], bands: ['morning', 'lunch'] }, vibe: 'A loop, then coffee' },
 ];
 
-export function placeById(id) {
-  return PLACES.find((p) => p.id === id);
-}
-
-export function activityById(id) {
-  return ACTIVITIES.find((a) => a.id === id);
-}

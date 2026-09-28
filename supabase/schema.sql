@@ -11,6 +11,7 @@ create table if not exists profiles (
   setting text default 'either',
   group_size int default 3 check (group_size is null or group_size between 2 and 12),
   zone text default 'union',
+  school text,
   availability jsonb default '{"days":[],"bands":[]}'::jsonb, -- also groupFlex, groupSize, groupSizes, and optional bio
   updated_at timestamptz default now()
 );
@@ -57,13 +58,13 @@ create policy "students own private state"
 
 -- Demo classmates so a brand-new account still has people to meet.
 -- They cannot log in. Real signups are added by the app.
-insert into profiles (id, name, major, hobbies, activities, energy, setting, group_size, zone, availability) values
-  ('11111111-1111-4111-8111-111111111111', 'Jordan Kim', 'Kinesiology', array['Basketball','Coffee'], array['Fitness','Food'], 'high', 'outdoors', 3, 'gym', '{"days":[1,2,3,4,5],"bands":["morning","lunch","afternoon"]}'::jsonb),
-  ('22222222-2222-4222-8222-222222222222', 'Priya Shah', 'Biology', array['Games','Walking'], array['Food','Studying'], 'calm', 'either', 3, 'science', '{"days":[1,2,3,4,5],"bands":["lunch","afternoon"]}'::jsonb),
-  ('33333333-3333-4333-8333-333333333333', 'Maya Lopez', 'Computer Science', array['Walking','Music'], array['Studying','Fitness'], 'mixed', 'either', 3, 'library', '{"days":[1,2,4,5],"bands":["lunch","afternoon","evening"]}'::jsonb),
-  ('44444444-4444-4444-8444-444444444444', 'Sam Nguyen', 'Business', array['Games','Movies'], array['Social','Food'], 'mixed', 'indoors', 3, 'union', '{"days":[2,3,4,5],"bands":["lunch","afternoon","evening"]}'::jsonb),
-  ('55555555-5555-4555-8555-555555555555', 'Elena Vasquez', 'Art', array['Walking','Coffee'], array['Outdoors','Social'], 'calm', 'outdoors', 3, 'quad', '{"days":[1,3,4,5,6],"bands":["afternoon","evening"]}'::jsonb),
-  ('66666666-6666-4666-8666-666666666666', 'Luis Ortega', 'Biology', array['Walking','Photography'], array['Food','Studying'], 'mixed', 'either', 3, 'science', '{"days":[1,2,3,4,5],"bands":["lunch","afternoon"]}'::jsonb)
+insert into profiles (id, name, major, hobbies, activities, energy, setting, group_size, zone, school, availability) values
+  ('11111111-1111-4111-8111-111111111111', 'Jordan Kim', 'Kinesiology', array['Basketball','Coffee'], array['Fitness','Food'], 'high', 'outdoors', 3, 'gym', 'csueastbay', '{"days":[1,2,3,4,5],"bands":["morning","lunch","afternoon"]}'::jsonb),
+  ('22222222-2222-4222-8222-222222222222', 'Priya Shah', 'Biology', array['Games','Walking'], array['Food','Studying'], 'calm', 'either', 3, 'science', 'csueastbay', '{"days":[1,2,3,4,5],"bands":["lunch","afternoon"]}'::jsonb),
+  ('33333333-3333-4333-8333-333333333333', 'Maya Lopez', 'Computer Science', array['Walking','Music'], array['Studying','Fitness'], 'mixed', 'either', 3, 'library', 'csueastbay', '{"days":[1,2,4,5],"bands":["lunch","afternoon","evening"]}'::jsonb),
+  ('44444444-4444-4444-8444-444444444444', 'Sam Nguyen', 'Business', array['Games','Movies'], array['Social','Food'], 'mixed', 'indoors', 3, 'union', 'csueastbay', '{"days":[2,3,4,5],"bands":["lunch","afternoon","evening"]}'::jsonb),
+  ('55555555-5555-4555-8555-555555555555', 'Elena Vasquez', 'Art', array['Walking','Coffee'], array['Outdoors','Social'], 'calm', 'outdoors', 3, 'quad', 'csueastbay', '{"days":[1,3,4,5,6],"bands":["afternoon","evening"]}'::jsonb),
+  ('66666666-6666-4666-8666-666666666666', 'Luis Ortega', 'Biology', array['Walking','Photography'], array['Food','Studying'], 'mixed', 'either', 3, 'science', 'csueastbay', '{"days":[1,2,3,4,5],"bands":["lunch","afternoon"]}'::jsonb)
 on conflict (id) do nothing;
 
 -- Spellings the hobby list does not know. Matching does not read this table.
@@ -128,6 +129,38 @@ on conflict do nothing;
 create index if not exists profiles_hobbies_gin on profiles using gin (hobbies);
 create index if not exists profiles_activities_gin on profiles using gin (activities);
 create index if not exists profiles_availability_gin on profiles using gin (availability);
+create index if not exists profiles_school on profiles (school);
+
+-- Cached campus places from Geoapify. Handwritten campuses stay in the app.
+create table if not exists campuses (
+  id text primary key,
+  name text not null,
+  domains text[] default '{}',
+  default_zone text,
+  zones jsonb default '[]'::jsonb,
+  near jsonb default '{}'::jsonb,
+  places jsonb default '[]'::jsonb,
+  activities jsonb default '[]'::jsonb,
+  lat double precision,
+  lng double precision,
+  source text default 'geoapify',
+  updated_at timestamptz default now()
+);
+
+alter table campuses enable row level security;
+grant select, insert, update on campuses to authenticated;
+
+drop policy if exists "students read campuses" on campuses;
+create policy "students read campuses"
+  on campuses for select to authenticated using (true);
+
+drop policy if exists "students insert campuses" on campuses;
+create policy "students insert campuses"
+  on campuses for insert to authenticated with check (true);
+
+drop policy if exists "students update campuses" on campuses;
+create policy "students update campuses"
+  on campuses for update to authenticated using (true);
 
 create or replace function match_candidates(
   match_day int,
@@ -146,6 +179,7 @@ as $$
   from profiles p
   where p.id is distinct from auth.uid()
     and p.name is not null
+    and p.school = (select me.school from profiles me where me.id = auth.uid())
     and (p.availability -> 'days') @> to_jsonb(match_day)
     and (p.availability -> 'bands') ?| match_bands
     and (
@@ -180,6 +214,7 @@ as $$
     from profiles p
     where p.id is distinct from auth.uid()
       and p.name is not null
+      and p.school = (select me.school from profiles me where me.id = auth.uid())
       and (p.availability -> 'days') @> to_jsonb(match_day)
       and (p.availability -> 'bands') ?& match_bands
       and (
@@ -314,3 +349,93 @@ grant execute on function match_crowd(int, text[], text[], text[], int) to authe
 grant execute on function sync_hobby_counts(text[], boolean, boolean) to authenticated;
 
 notify pgrst, 'reload schema';
+
+-- Shared meetups: Accept creates invites; names stay private until the other person accepts.
+-- Also in supabase/meetups.sql for a focused migrate.
+
+create table if not exists meetups (
+  id uuid primary key default gen_random_uuid(),
+  host_id text not null,
+  school text,
+  payload jsonb not null default '{}'::jsonb,
+  status text not null default 'open',
+  created_at timestamptz default now()
+);
+
+create table if not exists meetup_members (
+  meetup_id uuid not null references meetups(id) on delete cascade,
+  user_id text not null,
+  role text not null default 'guest',
+  status text not null default 'invited',
+  here boolean not null default false,
+  name text default '',
+  major text default '',
+  primary key (meetup_id, user_id)
+);
+
+create index if not exists meetup_members_user on meetup_members (user_id);
+create index if not exists meetups_host on meetups (host_id);
+
+alter table meetups enable row level security;
+alter table meetup_members enable row level security;
+
+grant select, insert, update, delete on meetups to authenticated;
+grant select, insert, update, delete on meetup_members to authenticated;
+
+drop policy if exists "members read meetups" on meetups;
+create policy "members read meetups"
+  on meetups for select to authenticated
+  using (
+    host_id = auth.uid()::text
+    or exists (
+      select 1 from meetup_members m
+      where m.meetup_id = id and m.user_id = auth.uid()::text
+    )
+  );
+
+drop policy if exists "host insert meetups" on meetups;
+create policy "host insert meetups"
+  on meetups for insert to authenticated
+  with check (host_id = auth.uid()::text);
+
+drop policy if exists "host update meetups" on meetups;
+create policy "host update meetups"
+  on meetups for update to authenticated
+  using (host_id = auth.uid()::text);
+
+drop policy if exists "host delete meetups" on meetups;
+create policy "host delete meetups"
+  on meetups for delete to authenticated
+  using (host_id = auth.uid()::text);
+
+drop policy if exists "members read roster" on meetup_members;
+create policy "members read roster"
+  on meetup_members for select to authenticated
+  using (
+    user_id = auth.uid()::text
+    or exists (
+      select 1 from meetup_members self
+      where self.meetup_id = meetup_id and self.user_id = auth.uid()::text
+    )
+  );
+
+drop policy if exists "host insert members" on meetup_members;
+create policy "host insert members"
+  on meetup_members for insert to authenticated
+  with check (
+    exists (
+      select 1 from meetups m
+      where m.id = meetup_id and m.host_id = auth.uid()::text
+    )
+  );
+
+drop policy if exists "member update self" on meetup_members;
+create policy "member update self"
+  on meetup_members for update to authenticated
+  using (
+    user_id = auth.uid()::text
+    or exists (
+      select 1 from meetups m
+      where m.id = meetup_id and m.host_id = auth.uid()::text
+    )
+  );

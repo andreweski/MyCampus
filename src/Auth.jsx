@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { isSchoolEmail } from './data.js';
 import { isSupabaseConfigured } from './supabase.js';
 import { confirmSignupCode, logIn, logInWithSupabase, logOut, sendSignupCode, signUp, signUpWithSupabase } from './store.js';
 
@@ -95,8 +96,15 @@ export function ConfirmCode({ email }) {
   );
 }
 
-function isSchoolEmail(value) {
-  return /^[^\s@]+@[^\s@]+\.edu$/i.test(value.trim());
+export function CampusClosed({ email }) {
+  return (
+    <main className="onboard auth">
+      <p className="brand">MyCampus</p>
+      <h1>This campus could not be found.</h1>
+      <p className="lede">{email} is a school address, but MyCampus could not find places for that campus yet.</p>
+      <button type="button" className="ghost" onClick={() => logOut()}>Log out</button>
+    </main>
+  );
 }
 
 export function Auth() {

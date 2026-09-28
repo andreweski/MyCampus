@@ -24,6 +24,30 @@
   status = 200
 
 [[redirects]]
+  from = "/api/map-tiles/*"
+  to = "/.netlify/functions/map-tiles/:splat"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/campus"
+  to = "/.netlify/functions/campus"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/schools"
+  to = "/.netlify/functions/schools"
+  status = 200
+  force = true
+
+[[redirects]]
+  from = "/api/places"
+  to = "/.netlify/functions/places"
+  status = 200
+  force = true
+
+[[redirects]]
   from = "/*"
   to = "/index.html"
   status = 200

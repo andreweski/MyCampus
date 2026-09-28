@@ -1,5 +1,5 @@
 import {
-  ACTIVITIES, BANDS, DAY_LABELS, PEERS, activityById, clusterOf, hobbyId, hobbyLabel,
+  BANDS, DAY_LABELS, PEERS, activitiesFor, activityById, clusterOf, hobbyId, hobbyLabel,
   personTags, placeById, resolveHobby, tagAffinity, zonesClose,
 } from './data.js';
 import { formatAskDate } from './parse.js';
@@ -347,7 +347,7 @@ function activityFit(activity, members, ask) {
   if (activity.id === 'hoops' && calm > high && !ask?.intents?.some((intent) => tagAffinity(intent, 'basketball') === 1)) fit -= 0.18;
   if (activity.id === 'garden' && calm >= 2) fit += 0.08;
   const indoors = members.filter((m) => m.setting === 'indoors').length;
-  const place = placeById(activity.place);
+  const place = placeById(activity.place, members[0]?.school);
   if (place?.outdoor && indoors >= Math.ceil(members.length * 0.7)) fit -= 0.12;
   if (!place?.outdoor && members.filter((m) => m.setting === 'outdoors').length >= 3) fit -= 0.06;
   return Math.max(0, Math.min(1, fit));
@@ -372,7 +372,7 @@ function because(user, peer, population) {
   if (shared.length) return `Free at the same time, and you both like ${hobbyLabel(shared[0]).toLowerCase()}`;
   const plan = sharedPlan(user, [peer]);
   if (plan) return `Free at the same time, and you both are up for ${plan}`;
-  if (zonesClose(user.zone, peer.zone)) return 'Free then, and usually on the same part of campus';
+  if (zonesClose(user.zone, peer.zone, user.school)) return 'Free then, and usually on the same part of campus';
   return peer.vibe;
 }
 
@@ -451,8 +451,9 @@ function groupBase(user, peers, window, history, population) {
 function scoreGroup(base, activity, ask, user, useBio) {
   const fit = memoActivityFit(activity, base.members, ask);
   if (fit < 0.28) return null;
-  const place = placeById(activity.place);
-  const proximity = base.members.filter((m) => zonesClose(m.zone, place.zone)).length / base.members.length;
+  const place = placeById(activity.place, user.school);
+  if (!place) return null;
+  const proximity = base.members.filter((m) => zonesClose(m.zone, place.zone, user.school)).length / base.members.length;
   const liked = place && (user.preferredPlaces || []).includes(place.id) ? 0.07 : 0;
   const w = useBio
     ? { schedule: 0.32, hobby: 0.30, fit: 0.15, interest: 0.05, proximity: 0.05, major: 0.03 }
@@ -771,7 +772,7 @@ export function recommend(profile, { passed = [], history = [], ask = null, now 
     if (!sizes.length) continue;
     if (!free.length && !sizes.some((size) => size > DOWNLOAD_CAP)) continue;
 
-    let activities = ACTIVITIES.filter((activity) => {
+    let activities = activitiesFor(profile.school).filter((activity) => {
       const length = duration || activity.duration;
       if (window.end - window.start < length) return false;
       if (!ask && !activity.bands.includes(window.band)) return false;
@@ -886,8 +887,12 @@ export function recommend(profile, { passed = [], history = [], ask = null, now 
     clearScoreMemo();
     return null;
   }
-  const place = placeById(best.activity.place);
-  const activity = activityById(best.activity.id);
+  const place = placeById(best.activity.place, profile.school);
+  const activity = activityById(best.activity.id, profile.school) || best.activity;
+  if (!place || !activity?.id) {
+    clearScoreMemo();
+    return null;
+  }
   let why = whyGroup(profile, best.group, population, best.size);
   if (best.useBio && runner) {
     const bare = best.rank - best.bio * 0.10;
@@ -910,6 +915,7 @@ export function recommend(profile, { passed = [], history = [], ask = null, now 
     why,
     roster: rosterFor(best.size),
     crowdCount: best.size,
+    school: profile.school || null,
     ask: ask ? { ...ask } : null,
   };
 }

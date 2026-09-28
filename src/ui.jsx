@@ -1,4 +1,8 @@
-import { ZONES, placeById } from './data.js';
+import { useEffect, useRef } from 'react';
+import L from 'leaflet';
+import 'leaflet/dist/leaflet.css';
+import { campusFor } from './data.js';
+import { initialsOf } from './privacy.js';
 import { profileEffect } from './store.js';
 
 export function Mark({ size = 36 }) {
@@ -13,33 +17,63 @@ export function Mark({ size = 36 }) {
 }
 
 export function Avatar({ person, effect = '', size = 44 }) {
-  const name = person?.name || 'You';
-  const initials = name.split(' ').filter(Boolean).map((p) => p[0]).slice(0, 2).join('');
+  const label = person?.displayName || person?.label || person?.name || 'You';
+  const initials = initialsOf(person?.name || person?.displayName || label);
   return (
     <span
       className={`avatar effect-${effect}`}
       style={{ width: size, height: size }}
-      title={name}
+      title={label}
     >
       {initials}
     </span>
   );
 }
 
-export function CampusMap({ activeId, userZone }) {
-  const active = placeById(activeId) || placeById('union-lawn');
-  const query = `${active.lat},${active.lng}`;
-  const src = `https://maps.google.com/maps?q=${query}&z=17&hl=en&output=embed`;
-  const open = `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${active.lat},${active.lng}`)}`;
-  const zone = ZONES.find((z) => z.id === userZone)?.label;
+export function CampusMap({ activeId, userZone, school, places: placesProp }) {
+  const campus = campusFor(school);
+  const places = placesProp?.length ? placesProp : campus.places;
+  const active = places.find((place) => place.id === activeId) || places[0];
+  const node = useRef(null);
+  if (!active) {
+    return (
+      <figure className="map-frame">
+        <figcaption>No places loaded for this campus yet.</figcaption>
+      </figure>
+    );
+  }
+  const open = `https://www.openstreetmap.org/?mlat=${active.lat}&mlon=${active.lng}#map=17/${active.lat}/${active.lng}`;
+  const zone = campus.zones.find((item) => item.id === userZone)?.label;
+
+  useEffect(() => {
+    if (!node.current) return undefined;
+    const map = L.map(node.current, { zoomControl: true, attributionControl: true }).setView([active.lat, active.lng], 17);
+    L.tileLayer('/api/map-tiles/{z}/{x}/{y}.png', {
+      attribution: '&copy; OpenStreetMap contributors, &copy; Geoapify',
+      maxZoom: 20,
+    }).addTo(map);
+    L.circleMarker([active.lat, active.lng], {
+      radius: 8,
+      color: '#1d4e9e',
+      weight: 2,
+      fillColor: '#1d4e9e',
+      fillOpacity: 1,
+    }).addTo(map);
+    const frame = requestAnimationFrame(() => map.invalidateSize());
+    return () => {
+      cancelAnimationFrame(frame);
+      map.remove();
+    };
+  }, [active.lat, active.lng]);
+
   return (
     <figure className="map-frame">
       <div className="map-clip">
-        <iframe className="campus" title={`Google Maps: ${active.name}`} src={src} loading="lazy" scrolling="no" referrerPolicy="no-referrer-when-downgrade" />
+        <div ref={node} className="campus-map" role="img" aria-label={`Map: ${active.name}`} />
       </div>
       <figcaption>
-        <a href={open} target="_blank" rel="noreferrer">Open {active.name} in Google Maps</a>
-        {zone && <span>You usually are near the {zone}</span>}
+        <a href={open} target="_blank" rel="noreferrer">Open {active.name} on a larger map</a>
+        {zone && <span>You usually are near the {zone} at {campus.name}</span>}
       </figcaption>
     </figure>
   );

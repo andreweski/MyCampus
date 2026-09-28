@@ -3,7 +3,7 @@ import { Onboarding } from './Onboarding.jsx';
 import { Today } from './Today.jsx';
 import { Plan, Reward } from './Plan.jsx';
 import { MapScreen, Profile, Rewards } from './More.jsx';
-import { Auth, ConfirmCode } from './Auth.jsx';
+import { Auth, CampusClosed, ConfirmCode } from './Auth.jsx';
 import { dismissReward, getState, saveProfile, subscribe } from './store.js';
 
 const TABS = [
@@ -16,11 +16,16 @@ const TABS = [
 export function App() {
   const state = useSyncExternalStore(subscribe, getState, getState);
   const [tab, setTab] = useState('today');
-  const planKey = state.plan?.key;
+  const planKey = state.plan?.meetupId || state.plan?.id || state.plan?.key;
+  const inviteKey = state.invite?.meetupId || state.invite?.id || state.invite?.key;
 
   useEffect(() => {
     if (planKey) setTab('plan');
   }, [planKey]);
+
+  useEffect(() => {
+    if (inviteKey) setTab('today');
+  }, [inviteKey]);
 
   useEffect(() => {
     if (!state.plan && tab === 'plan') setTab('today');
@@ -28,7 +33,19 @@ export function App() {
 
   if (!state.accountEmail) return <Auth />;
   if (state.signupConfirmed === false) return <ConfirmCode email={state.accountEmail} />;
-  if (!state.profile) return <Onboarding onDone={saveProfile} />;
+  if (state.campusMissing && state.profile) return <CampusClosed email={state.accountEmail} />;
+  if (!state.profile) {
+    return <Onboarding onDone={saveProfile} school={state.school} campus={state.campusCatalog} email={state.accountEmail} />;
+  }
+  if (state.campusLoading && !state.campusCatalog?.places?.length) {
+    return (
+      <main className="onboard auth">
+        <p className="brand">MyCampus</p>
+        <h1>Finding your campus.</h1>
+        <p className="lede">Looking up places for {state.school || 'your school'}.</p>
+      </main>
+    );
+  }
   if (state.justRewarded) return <Reward reward={state.justRewarded} onDone={dismissReward} />;
 
   return (
