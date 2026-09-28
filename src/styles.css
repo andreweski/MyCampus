@@ -139,7 +139,20 @@ textarea { resize: vertical; }
 .map-clip { height: 280px; overflow: hidden; border-radius: 18px; }
 .campus-map { height: 280px; width: 100%; background: #dbe7f5; }
 .map-frame figcaption { display: grid; gap: 0.2rem; margin-top: 0.45rem; font-size: 0.9rem; }
-.map-frame a { color: white; }
+.map-frame figcaption a { color: white; }
+.campus-map .leaflet-control-zoom a {
+  color: #111;
+  background: #fff;
+  border-bottom-color: rgba(0, 0, 0, 0.18);
+}
+.campus-map .leaflet-control-zoom a:hover {
+  color: #000;
+  background: #f3f3f3;
+}
+.campus-map .leaflet-bar {
+  border: 1px solid rgba(0, 0, 0, 0.28);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+}
 .map-screen .chips { margin: 0.75rem 0 0; }
 .map-actions {
   display: flex;
@@ -156,7 +169,7 @@ textarea { resize: vertical; }
 .map-search { display: grid; gap: 0.4rem; margin: 0; }
 .map-search .row { width: 100%; }
 .map-search .ghost { flex: 0 0 auto; }
-.invite .map-frame a, .invite .map-frame span { color: #1d4e9e; }
+.invite .map-frame figcaption a, .invite .map-frame figcaption span { color: #1d4e9e; }
 .top .texty { margin-left: auto; padding: 0; }
 .people { list-style: none; padding: 0; margin: 0.9rem 0; display: grid; gap: 0.75rem; }
 .people li { display: flex; gap: 0.75rem; align-items: center; }
